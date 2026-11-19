@@ -94,7 +94,7 @@ The end-to-end tests exercise Word → PDF, PDF → Word, scanned-PDF detection 
 
 ## Deployment
 
-The site is deployed to the `gh-pages` branch and served by GitHub Pages.
+The site is deployed to the `gh-pages` branch and served by GitHub Pages. The `main` branch holds the source; `gh-pages` holds the built site.
 
 ```bash
 npm run deploy
@@ -141,6 +141,8 @@ Libraries and assets:
 - [pdf-lib](https://github.com/Hopding/pdf-lib) — MIT (sample generation only)
 - Geist, Carlito, and Caladea fonts via [Fontsource](https://fontsource.org/) — SIL Open Font License
 - Icons adapted from [Lucide](https://lucide.dev/) — ISC
+
+Full license texts are available in [`public/licenses/`](public/licenses/) and are served at `/licenses/`.
 
 ## License
 
