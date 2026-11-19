@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="./theme-init.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF ⇄ Word — Private Word &amp; PDF Converter</title>
+    <meta
+      name="description"
+      content="Convert Word documents to PDF and PDFs to editable Word files right in your browser. No uploads, no sign-up, no tracking."
+    />
+    <meta name="theme-color" content="#F7F6F3" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta property="og:title" content="PDF ⇄ Word — Private Word &amp; PDF Converter" />
+    <meta
+      property="og:description"
+      content="Convert Word and PDF files without uploading a thing. Fast, free, and private."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://andrewung2009.github.io/pdf-word-converter/" />
+    <meta property="og:image" content="https://andrewung2009.github.io/pdf-word-converter/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://andrewung2009.github.io/pdf-word-converter/og.png" />
+  </head>
+  <body>
+    <svg class="svg-sprite" aria-hidden="true">
+      <symbol id="icon-upload" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="M17 8l-5-5-5 5" />
+        <path d="M12 3v12" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="M7 10l5 5 5-5" />
+        <path d="M12 15V3" />
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h8M8 17h8M8 9h2" />
+      </symbol>
+      <symbol id="icon-swap" viewBox="0 0 24 24">
+        <path d="M4 7h13l-3-3M20 17H7l3 3" />
+      </symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24">
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+        <path d="m9 12 2 2 4-4" />
+      </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="3" y="11" width="18" height="11" rx="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="icon-check-circle" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8.5 12 2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </symbol>
+      <symbol id="icon-printer" viewBox="0 0 24 24">
+        <path d="M6 9V2h12v7" />
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <rect x="6" y="14" width="12" height="8" rx="1" />
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M3 21v-5h5" />
+      </symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41" />
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+      </symbol>
+      <symbol id="icon-github" viewBox="0 0 24 24">
+        <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+        <path d="M9 18c-4.51 2-5-2-7-2" />
+      </symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24">
+        <path d="m6 9 6 6 6-6" />
+      </symbol>
+      <symbol id="icon-sparkle" viewBox="0 0 24 24">
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+      </symbol>
+    </svg>
+
+    <a class="skip-link" href="#converter">Skip to converter</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./" aria-label="PDF ⇄ Word home">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="3" y="4" width="16" height="20" rx="3" fill="currentColor" opacity=".12" />
+            <path d="M7 9h7M7 13h7M7 17h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+            <rect x="13" y="8" width="16" height="20" rx="3" fill="var(--surface)" stroke="currentColor" stroke-width="1.7" />
+            <path d="M17 14h8M17 18h8M17 22h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+          <span class="brand-name">PDF <span class="brand-swap">⇄</span> Word</span>
+        </a>
+
+        <div class="header-actions">
+          <span class="local-pill" title="All conversion happens inside your browser">
+            <span class="local-dot" aria-hidden="true"></span>
+            100% local
+          </span>
+          <button class="icon-button theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode">
+            <svg class="icon icon-sun" aria-hidden="true"><use href="#icon-sun"></use></svg>
+            <svg class="icon icon-moon" aria-hidden="true"><use href="#icon-moon"></use></svg>
+          </button>
+          <a
+            class="icon-button github-link"
+            href="https://github.com/andrewung2009/pdf-word-converter"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="View source on GitHub"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#icon-github"></use></svg>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero shell" aria-labelledby="hero-title">
+        <h1 id="hero-title">Convert Word and PDF, <span class="nowrap">without uploading a thing.</span></h1>
+        <p class="hero-sub">
+          Everything runs in your browser. No sign-up, no server, no waiting for an upload.
+        </p>
+      </section>
+
+      <section class="converter shell" id="converter" aria-label="File converter">
+        <div class="mode-switch" role="tablist" aria-label="Conversion direction">
+          <button
+            class="mode-tab"
+            id="mode-docx-pdf"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="tool-card"
+            data-mode="docx-to-pdf"
+          >
+            <span class="mode-title">Word <span aria-hidden="true">→</span> PDF</span>
+            <span class="mode-sub">Keep the layout</span>
+          </button>
+          <button
+            class="mode-tab"
+            id="mode-pdf-docx"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tool-card"
+            tabindex="-1"
+            data-mode="pdf-to-docx"
+          >
+            <span class="mode-title">PDF <span aria-hidden="true">→</span> Word</span>
+            <span class="mode-sub">Get editable text</span>
+          </button>
+        </div>
+
+        <div class="tool-card" id="tool-card">
+          <div class="state" id="idle-state">
+            <div
+              class="dropzone"
+              id="dropzone"
+              role="button"
+              tabindex="0"
+              aria-labelledby="dz-title"
+              aria-describedby="dz-hint"
+            >
+              <span class="dz-icon">
+                <svg class="icon" aria-hidden="true"><use href="#icon-upload"></use></svg>
+              </span>
+              <p class="dz-title" id="dz-title">Drop your .docx here</p>
+              <p class="dz-sub">or <span class="fake-link">choose a file</span></p>
+              <p class="dz-hint" id="dz-hint">No uploads · No account · No tracking</p>
+            </div>
+            <input
+              id="file-input"
+              class="visually-hidden"
+              type="file"
+              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            />
+
+            <div class="under-drop">
+              <p id="format-note">Word document (.docx) · up to ~25 MB recommended</p>
+              <button class="text-button" id="sample-button" type="button">
+                <svg class="icon small" aria-hidden="true"><use href="#icon-sparkle"></use></svg>
+                <span id="sample-label">Try a sample</span>
+              </button>
+            </div>
+
+            <div class="alert" id="idle-alert" role="alert" hidden>
+              <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+              <div class="alert-body">
+                <p class="alert-title" id="idle-alert-title"></p>
+                <p class="alert-text" id="idle-alert-text"></p>
+              </div>
+            </div>
+
+            <div class="file-panel" id="file-panel" hidden>
+              <div class="file-row">
+                <span class="file-icon"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg></span>
+                <div class="file-meta">
+                  <p class="file-name" id="file-name"></p>
+                  <p class="file-sub" id="file-sub"></p>
+                </div>
+                <button class="icon-button" id="remove-file" type="button" aria-label="Remove selected file">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+                </button>
+              </div>
+
+              <fieldset class="options" id="pdf-options" hidden>
+                <legend>How should the Word file be built?</legend>
+                <div class="option-grid">
+                  <label class="option-card">
+                    <input type="radio" name="pdf-mode" value="text" checked />
+                    <span class="option-body">
+                      <span class="option-title">Editable text <span class="badge">Recommended</span></span>
+                      <span class="option-desc">Real paragraphs, headings, and lists. Complex layouts may shift.</span>
+                    </span>
+                  </label>
+                  <label class="option-card">
+                    <input type="radio" name="pdf-mode" value="image" />
+                    <span class="option-body">
+                      <span class="option-title">Exact layout</span>
+                      <span class="option-desc">Pages become images. Perfect visuals, but text is not editable.</span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <p class="file-note" id="docx-note">
+                High-quality PDF. Need selectable text? Use the print option after converting.
+              </p>
+
+              <div class="alert warning" id="file-warning" role="alert" hidden>
+                <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+                <div class="alert-body">
+                  <p class="alert-title" id="file-warning-title"></p>
+                  <p class="alert-text" id="file-warning-text"></p>
+                </div>
+              </div>
+
+              <div class="alert" id="inline-alert" role="alert" hidden>
+                <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+                <div class="alert-body">
+                  <p class="alert-title" id="inline-alert-title"></p>
+                  <p class="alert-text" id="inline-alert-text"></p>
+                </div>
+              </div>
+
+              <div class="file-actions">
+                <button class="button primary" id="convert-button" type="button">Convert to PDF</button>
+                <button class="button ghost" id="change-file" type="button">Choose a different file</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="state busy" id="busy-state" hidden aria-live="polite">
+            <div class="busy-head">
+              <span class="spinner" aria-hidden="true"></span>
+              <div class="busy-copy">
+                <p class="busy-title" id="busy-title">Converting…</p>
+                <p class="busy-sub" id="busy-sub">Reading your file</p>
+              </div>
+              <button class="button ghost small" id="cancel-button" type="button">Cancel</button>
+            </div>
+            <div
+              class="progress"
+              id="progress"
+              role="progressbar"
+              aria-label="Conversion progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-meta">
+              <span id="progress-label">Starting</span>
+              <span id="progress-percent">0%</span>
+            </div>
+          </div>
+
+          <div class="state result" id="result-state" hidden aria-live="polite">
+            <div class="result-head">
+              <span class="success-icon">
+                <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
+              </span>
+              <div>
+                <h2 id="result-title">Done. Your PDF is ready.</h2>
+                <p class="result-meta" id="result-meta"></p>
+              </div>
+            </div>
+
+            <div class="result-grid">
+              <div class="preview" id="result-preview" aria-label="Conversion preview"></div>
+              <aside class="result-actions">
+                <button class="button primary large" id="download-button" type="button">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg>
+                  <span id="download-label">Download PDF</span>
+                </button>
+                <button class="button secondary" id="print-button" type="button" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="#icon-printer"></use></svg>
+                  Print / Save as PDF
+                </button>
+                <button class="text-button" id="image-mode-button" type="button" hidden>
+                  Convert as images instead
+                </button>
+                <button class="button ghost" id="convert-another" type="button">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                  Convert another
+                </button>
+                <div class="result-details" id="result-details"></div>
+                <div class="alert" id="result-alert" role="alert" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+                  <div class="alert-body">
+                    <p class="alert-title" id="result-alert-title"></p>
+                    <p class="alert-text" id="result-alert-text"></p>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+
+        <p class="privacy-strip">
+          <svg class="icon small" aria-hidden="true"><use href="#icon-shield"></use></svg>
+          Files stay in this tab. Nothing is uploaded, stored, or tracked.
+        </p>
+      </section>
+
+      <section class="info shell" id="how-it-works">
+        <div class="info-block">
+          <div class="section-heading">
+            <p class="eyebrow">How it works</p>
+            <h2>Three steps. That’s it.</h2>
+          </div>
+          <div class="steps">
+            <article class="step">
+              <span class="step-number">1</span>
+              <h3>Add your file</h3>
+              <p>Drop a Word document or PDF, or choose one from your device.</p>
+            </article>
+            <article class="step">
+              <span class="step-number">2</span>
+              <h3>Convert</h3>
+              <p>Choose a direction and press Convert. Progress updates page by page.</p>
+            </article>
+            <article class="step">
+              <span class="step-number">3</span>
+              <h3>Download</h3>
+              <p>Save the finished file. Your original is never changed.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="info-block privacy-block">
+          <div class="section-heading">
+            <p class="eyebrow">Privacy</p>
+            <h2>Your files never leave this tab.</h2>
+          </div>
+          <p class="privacy-copy">
+            Conversion runs entirely in your browser. There is no server to upload to, no account, and no analytics.
+            The page itself is served by GitHub Pages, but your document contents are never sent anywhere.
+          </p>
+          <ul class="check-list">
+            <li><svg class="icon small" aria-hidden="true"><use href="#icon-check"></use></svg> No uploads or cloud processing</li>
+            <li><svg class="icon small" aria-hidden="true"><use href="#icon-check"></use></svg> No account or email required</li>
+            <li><svg class="icon small" aria-hidden="true"><use href="#icon-check"></use></svg> No tracking, cookies, or ads</li>
+          </ul>
+        </div>
+
+        <div class="info-block">
+          <div class="section-heading">
+            <p class="eyebrow">FAQ</p>
+            <h2>Good to know.</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Which formats are supported?</summary>
+              <p>
+                Word documents in the modern <strong>.docx</strong> format and PDFs. The old binary <strong>.doc</strong>
+                format is not supported. In Word, use <em>File → Save As → Word Document (.docx)</em> first.
+              </p>
+            </details>
+            <details>
+              <summary>How close will the conversion be?</summary>
+              <p>
+                Word → PDF keeps the page layout, tables, and images very close to the original. PDF → Word rebuilds
+                editable text, headings, and lists; complex multi-column designs may shift. Choose “Exact layout” to keep
+                every page looking identical as images.
+              </p>
+            </details>
+            <details>
+              <summary>What about scanned PDFs?</summary>
+              <p>
+                A scanned PDF has no text layer, so editable output would be empty. The app detects this and suggests
+                “Exact layout” mode, which places each page image into Word. OCR is not included.
+              </p>
+            </details>
+            <details>
+              <summary>Why does the PDF look slightly different from Word?</summary>
+              <p>
+                The browser can only use fonts available to it. The app includes Carlito and Caladea, which match
+                Calibri and Cambria, but unusual fonts or advanced Word effects may render differently.
+              </p>
+            </details>
+            <details>
+              <summary>Is there a file size limit?</summary>
+              <p>
+                There is no server limit because nothing is uploaded. Around 25 MB or 200 pages is a comfortable range;
+                larger files work if your device has enough memory.
+              </p>
+            </details>
+            <details>
+              <summary>Can I get selectable text in the PDF?</summary>
+              <p>
+                Yes. After converting a Word document, use <strong>Print / Save as PDF</strong>. Your browser’s print
+                dialog creates a high-quality PDF with real, selectable text.
+              </p>
+            </details>
+            <details>
+              <summary>Does it work on my phone?</summary>
+              <p>
+                Yes, in current versions of Chrome, Edge, Firefox, and Safari. Large files are best handled on a
+                computer.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <p>PDF ⇄ Word · 100% client-side · MIT licensed</p>
+        <p>
+          <a href="https://github.com/andrewung2009/pdf-word-converter" target="_blank" rel="noreferrer">Source on GitHub</a>
+          <span class="dot-sep" aria-hidden="true">·</span>
+          <a href="#how-it-works">How it works</a>
+        </p>
+      </div>
+    </footer>
+
+    <div class="drag-overlay" id="drag-overlay" hidden aria-hidden="true">
+      <div class="drag-overlay-inner">
+        <svg class="icon large" aria-hidden="true"><use href="#icon-upload"></use></svg>
+        <p>Drop to convert</p>
+        <span>Your file stays on your device</span>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+    <div class="render-stage" id="render-stage" aria-hidden="true"></div>
+
+    <dialog class="modal" id="password-dialog">
+      <form class="modal-card" id="password-form" method="dialog">
+        <h2>Unlock PDF</h2>
+        <p id="password-message">This PDF is password-protected. Enter the password to continue.</p>
+        <label for="password-input">Password</label>
+        <input id="password-input" type="password" autocomplete="current-password" required />
+        <p class="field-error" id="password-error" hidden>That password didn’t work. Try again.</p>
+        <div class="modal-actions">
+          <button class="button ghost" id="password-cancel" type="button">Cancel</button>
+          <button class="button primary" id="password-submit" type="submit">Unlock</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

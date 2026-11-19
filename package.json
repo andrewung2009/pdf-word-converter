@@ -1,0 +1,49 @@
+{
+  "name": "pdf-word-converter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Private, client-side Word to PDF and PDF to Word converter for GitHub Pages.",
+  "homepage": "https://andrewung2009.github.io/pdf-word-converter/",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrewung2009/pdf-word-converter.git"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "deploy": "npm run build && gh-pages -d dist -b gh-pages --dotfiles",
+    "samples": "node scripts/make-samples.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/caladea": "^5.3.0",
+    "@fontsource/carlito": "^5.3.0",
+    "docx": "^9.16.0",
+    "docx-preview": "^0.4.1",
+    "html2canvas-pro": "^2.6.4",
+    "jspdf": "^4.2.1",
+    "pdfjs-dist": "^6.5.438"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "gh-pages": "^6.3.0",
+    "jszip": "^3.10.2",
+    "pdf-lib": "^1.17.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-static-copy": "^4.1.1",
+    "vitest": "^5.1.1"
+  }
+}
