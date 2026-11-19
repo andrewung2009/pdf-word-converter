@@ -34,6 +34,8 @@ export interface TextBlock {
   marker?: string;
   spaceBefore: number;
   spaceAfter: number;
+  top: number;
+  bottom: number;
 }
 
 export interface BuildBlocksResult {
@@ -253,6 +255,14 @@ function spaceBefore(previous: TextLine | null, line: TextLine, foreignAlignment
   return Math.min(26, (foreignAlignment ? Math.max(extra, 5) : extra));
 }
 
+function lineTop(line: TextLine): number {
+  return line.baseline - line.fontSize;
+}
+
+function lineBottom(line: TextLine): number {
+  return line.baseline + line.fontSize * 0.32;
+}
+
 function canMerge(current: TextBlock, previous: TextLine | null, line: TextLine, alignment: Alignment): boolean {
   if (!previous) return false;
   if (current.kind === 'heading') return false;
@@ -298,6 +308,8 @@ export function buildBlocks(lines: TextLine[], pageWidth: number): BuildBlocksRe
         headingLevel: level,
         spaceBefore: Math.max(before, level === 1 ? 12 : 8),
         spaceAfter: 5,
+        top: lineTop(line),
+        bottom: lineBottom(line),
       };
       blocks.push(block);
       current = null;
@@ -312,6 +324,8 @@ export function buildBlocks(lines: TextLine[], pageWidth: number): BuildBlocksRe
         alignment,
         spaceBefore: Math.max(before, 1),
         spaceAfter: 2,
+        top: lineTop(line),
+        bottom: lineBottom(line),
       };
       blocks.push(block);
       current = block;
@@ -319,6 +333,8 @@ export function buildBlocks(lines: TextLine[], pageWidth: number): BuildBlocksRe
       current.text = mergeText(current.text, line.text);
       current.bold = current.bold || line.bold;
       current.italic = current.italic || line.italic;
+      current.top = Math.min(current.top, lineTop(line));
+      current.bottom = Math.max(current.bottom, lineBottom(line));
     } else {
       const block: TextBlock = {
         kind: 'paragraph',
@@ -329,6 +345,8 @@ export function buildBlocks(lines: TextLine[], pageWidth: number): BuildBlocksRe
         alignment,
         spaceBefore: before,
         spaceAfter: 4,
+        top: lineTop(line),
+        bottom: lineBottom(line),
       };
       blocks.push(block);
       current = block;

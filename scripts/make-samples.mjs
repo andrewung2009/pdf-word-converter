@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   AlignmentType,
@@ -163,6 +163,7 @@ async function makePdf() {
   const helvetica = await pdf.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const helveticaOblique = await pdf.embedFont(StandardFonts.HelveticaOblique);
+  const sampleImage = await pdf.embedPng(await readFile(join(process.cwd(), 'public', 'og.png')));
 
   const page1 = pdf.addPage([612, 792]);
   const margin = 72;
@@ -238,6 +239,22 @@ async function makePdf() {
     color: rgb(0.42, 0.41, 0.38),
   });
 
+  page1.drawImage(sampleImage, { x: 72, y: 185, width: 360, height: 189 });
+  page1.drawText('The screenshot above is a real embedded image.', {
+    x: 72,
+    y: 165,
+    size: 9,
+    font: helvetica,
+    color: rgb(0.42, 0.41, 0.38),
+  });
+  page1.drawText('Editable text below and around it stays selectable in Word.', {
+    x: 72,
+    y: 145,
+    size: 11,
+    font: helvetica,
+    color: rgb(0.12, 0.12, 0.11),
+  });
+
   const page2 = pdf.addPage([612, 792]);
   y = 720;
   page2.drawText('Page two', { x: margin, y, size: 18, font: helveticaBold });
@@ -256,6 +273,15 @@ async function makePdf() {
   page2.drawText('2. Press Convert', { x: margin, y, size: 11, font: helveticaBold });
   y -= 18;
   page2.drawText('3. Download the result', { x: margin, y, size: 11, font: helveticaBold });
+
+  page2.drawImage(sampleImage, { x: 72, y: 300, width: 300, height: 158 });
+  page2.drawText('Images and text can live on the same page.', {
+    x: 72,
+    y: 280,
+    size: 9,
+    font: helvetica,
+    color: rgb(0.42, 0.41, 0.38),
+  });
 
   page2.drawText('100% client-side · no uploads · no account', {
     x: margin,

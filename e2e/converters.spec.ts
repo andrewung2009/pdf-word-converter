@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const sampleDocx = join(process.cwd(), 'public', 'samples', 'sample.docx');
 const samplePdf = join(process.cwd(), 'public', 'samples', 'sample.pdf');
@@ -49,6 +50,21 @@ test('desktop: Word to PDF conversion, preview, and download', async ({ page }) 
   const pdf = await PDFDocument.load(bytes);
   expect(pdf.getPageCount()).toBeGreaterThanOrEqual(2);
 
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
+  const textPdf = await loadingTask.promise;
+  let extracted = '';
+  for (let pageNumber = 1; pageNumber <= textPdf.numPages; pageNumber += 1) {
+    const textPage = await textPdf.getPage(pageNumber);
+    const content = await textPage.getTextContent();
+    extracted += `${content.items
+      .filter((item) => 'str' in item)
+      .map((item) => (item as { str: string }).str)
+      .join(' ')}\n`;
+  }
+  await loadingTask.destroy();
+  expect(extracted).toContain('Welcome to PDF');
+  expect(extracted).toContain('Page two');
+
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -63,6 +79,8 @@ test('desktop: PDF to Word conversion with editable text', async ({ page }) => {
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#result-title')).toContainText('Word file is ready');
   await expect(page.locator('#result-preview .text-preview')).toBeVisible();
+  await expect(page.locator('#result-details')).toContainText('Editable text + images');
+  await expect(page.locator('#result-details')).toContainText('Images');
   await expect(page.locator('#print-button')).toBeHidden();
   await page.screenshot({ path: join(resultsDir, '04-result-pdf-to-word.png'), fullPage: true });
 
@@ -76,6 +94,10 @@ test('desktop: PDF to Word conversion with editable text', async ({ page }) => {
   const documentXml = await zip.file('word/document.xml')?.async('string');
   expect(documentXml).toContain('Welcome to PDF');
   expect(documentXml).toContain('Page two');
+  expect(documentXml).toContain('<w:drawing>');
+  expect((documentXml?.match(/<w:drawing>/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  const media = Object.keys(zip.files).filter((name) => name.startsWith('word/media/'));
+  expect(media.length).toBeGreaterThan(0);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

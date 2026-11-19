@@ -59,6 +59,136 @@ function makePreview(canvas: HTMLCanvasElement): string {
   return preview.toDataURL('image/jpeg', 0.76);
 }
 
+interface TextLineBox {
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+}
+
+function sanitisePdfText(value: string): string {
+  return value
+    .replace(/\u21c4/g, '<->')
+    .replace(/\u2192/g, '->')
+    .replace(/\u2190/g, '<-')
+    .replace(/[\u2018\u2019\u201a\u201b\u2032]/g, "'")
+    .replace(/[\u201c\u201d\u201e\u201f\u2033]/g, '"')
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    .replace(/\u2026/g, '...')
+    .replace(/[\u2022\u2023\u25e6\u25aa\u25cf\u25cb\u25a0\u25a1\u2043]/g, '-')
+    .replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, ' ')
+    .replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function collectPageTextLines(page: HTMLElement): TextLineBox[] {
+  const pageRect = page.getBoundingClientRect();
+  const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+  const boxes: Array<{ text: string; left: number; right: number; top: number; bottom: number; size: number }> = [];
+  const styleCache = new WeakMap<HTMLElement, { font: number; visible: boolean }>();
+
+  let node = walker.nextNode();
+  while (node) {
+    const textNode = node as Text;
+    const parent = textNode.parentElement;
+    const value = textNode.nodeValue ?? '';
+    if (parent && value.trim() && !parent.closest('style, script, noscript')) {
+      let style = styleCache.get(parent);
+      if (!style) {
+        const computed = getComputedStyle(parent);
+        style = {
+          font: Number.parseFloat(computed.fontSize) || 12,
+          visible:
+            computed.display !== 'none' &&
+            computed.visibility !== 'hidden' &&
+            Number.parseFloat(computed.opacity) !== 0,
+        };
+        styleCache.set(parent, style);
+      }
+
+      if (style.visible) {
+        const wordPattern = /\S+/g;
+        let match: RegExpExecArray | null;
+        while ((match = wordPattern.exec(value))) {
+          const range = document.createRange();
+          range.setStart(textNode, match.index);
+          range.setEnd(textNode, match.index + match[0].length);
+          const rect = range.getBoundingClientRect();
+          if (rect.width >= 0.4 && rect.height >= 0.4) {
+            boxes.push({
+              text: match[0],
+              left: rect.left - pageRect.left,
+              right: rect.right - pageRect.left,
+              top: rect.top - pageRect.top,
+              bottom: rect.bottom - pageRect.top,
+              size: style.font,
+            });
+          }
+        }
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  boxes.sort((a, b) => a.top - b.top || a.left - b.left);
+  const lines: TextLineBox[] = [];
+  let current: Array<(typeof boxes)[number]> = [];
+
+  const flush = () => {
+    if (!current.length) return;
+    const first = current[0];
+    const text = current.reduce((result, box, index) => {
+      if (index === 0) return box.text;
+      const previous = current[index - 1];
+      const gap = box.left - previous.right;
+      return `${result}${gap > Math.max(1.5, previous.size * 0.15) ? ' ' : ''}${box.text}`;
+    }, '');
+    const maxSize = Math.max(...current.map((box) => box.size));
+    const baseline = current.reduce((sum, box) => sum + box.bottom, 0) / current.length;
+    const clean = sanitisePdfText(text);
+    if (clean) {
+      lines.push({
+        text: clean,
+        x: first.left * (72 / 96),
+        y: (baseline - maxSize * 0.28) * (72 / 96),
+        size: Math.max(1, maxSize * (72 / 96)),
+      });
+    }
+    current = [];
+  };
+
+  for (const box of boxes) {
+    if (!current.length) {
+      current.push(box);
+      continue;
+    }
+    const tolerance = Math.max(2, Math.max(current[0].size, box.size) * 0.55);
+    if (Math.abs(box.top - current[0].top) <= tolerance) {
+      current.push(box);
+    } else {
+      flush();
+      current.push(box);
+    }
+  }
+  flush();
+
+  return lines;
+}
+
+function addSelectableTextLayer(pdf: jsPDF, page: HTMLElement): void {
+  const lines = collectPageTextLines(page);
+  if (!lines.length) return;
+  pdf.setFont('helvetica', 'normal');
+  for (const line of lines) {
+    pdf.setFontSize(line.size);
+    pdf.text(line.text, line.x, line.y, {
+      baseline: 'alphabetic',
+      renderingMode: 'invisible',
+    });
+  }
+}
+
 function findRenderedPages(stage: HTMLElement): HTMLElement[] {
   const pages = Array.from(stage.querySelectorAll<HTMLElement>('.docx-wrapper > section.docx'));
   if (pages.length) return pages;
@@ -178,6 +308,11 @@ export async function convertDocxToPdf(file: File, options: DocxToPdfOptions): P
       }
 
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, widthPt, heightPt, undefined, 'FAST');
+      try {
+        addSelectableTextLayer(pdf, page);
+      } catch {
+        /* the visual PDF is still valid without the searchable text layer */
+      }
       if (previewImages.length < 6) previewImages.push(makePreview(canvas));
 
       canvas.width = 1;

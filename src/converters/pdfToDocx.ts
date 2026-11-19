@@ -13,6 +13,7 @@ import { AppError, assertNotAborted, isAbortError, UserCancelledError } from '..
 import { outputFilename } from '../lib/files';
 import { loadPdfjs, pdfAssetUrls } from '../lib/pdfjs';
 import type { ConversionResult, PdfToDocxOptions } from '../types';
+import { extractPageImages, type ExtractedPdfImage } from './pdfImages';
 import { blockPreviewText, buildBlocks, clusterLines, type RawTextItem, type TextBlock } from './textLayout';
 
 interface LoadedPdf {
@@ -27,6 +28,7 @@ interface PageExtract {
   width: number;
   height: number;
   blocks: TextBlock[];
+  images: ExtractedPdfImage[];
 }
 
 interface ImagePage {
@@ -183,7 +185,13 @@ function buildParagraph(block: TextBlock): Paragraph {
 function pageSection(page: PageExtract, fullBleed = false) {
   const width = ptToTwip(page.width);
   const height = ptToTwip(page.height);
-  const children = page.blocks.map(buildParagraph);
+  const items: Array<{ top: number; block?: TextBlock; image?: ExtractedPdfImage }> = [
+    ...page.blocks.map((block) => ({ top: block.top, block })),
+    ...page.images.map((image) => ({ top: image.top, image })),
+  ];
+  items.sort((a, b) => a.top - b.top || (a.image ? 1 : 0) - (b.image ? 1 : 0));
+
+  const children = items.map((item) => (item.image ? buildImageParagraph(item.image) : buildParagraph(item.block as TextBlock)));
   if (!children.length) children.push(new Paragraph({ text: '' }));
 
   return {
@@ -201,6 +209,25 @@ function pageSection(page: PageExtract, fullBleed = false) {
     },
     children,
   };
+}
+
+function buildImageParagraph(image: ExtractedPdfImage): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 140, after: 140 },
+    children: [
+      new ImageRun({
+        type: image.type,
+        data: image.data,
+        transformation: { width: image.width, height: image.height },
+        altText: {
+          title: `Image from page ${image.page}`,
+          description: 'Image extracted from the PDF',
+          name: `PDF image page ${image.page}`,
+        },
+      }),
+    ],
+  });
 }
 
 async function extractTextPages(pdf: LoadedPdf['pdf'], options: PdfToDocxOptions): Promise<{ pages: PageExtract[]; totalChars: number }> {
@@ -242,19 +269,57 @@ async function extractTextPages(pdf: LoadedPdf['pdf'], options: PdfToDocxOptions
 
     const lines = clusterLines(items);
     const { blocks } = buildBlocks(lines, viewport.width);
-    pages.push({ width: viewport.width, height: viewport.height, blocks });
+    pages.push({ width: viewport.width, height: viewport.height, blocks, images: [] });
 
     page.cleanup?.();
     options.onProgress({
       stage: `Rebuilding page ${index} of ${pdf.numPages}…`,
       page: index,
       totalPages: pdf.numPages,
-      percent: 8 + Math.round((index / pdf.numPages) * 66),
+      percent: 8 + Math.round((index / pdf.numPages) * 50),
     });
     await yieldToBrowser();
   }
 
   return { pages, totalChars };
+}
+
+async function extractImagesForPages(
+  pdf: LoadedPdf['pdf'],
+  pages: PageExtract[],
+  options: PdfToDocxOptions,
+): Promise<number> {
+  const pdfjs = await loadPdfjs();
+  let imageCount = 0;
+
+  for (let index = 0; index < pages.length; index += 1) {
+    assertNotAborted(options.signal);
+    const page = await pdf.getPage(index + 1);
+    assertNotAborted(options.signal);
+    const viewport = page.getViewport({ scale: 1 });
+    try {
+      const images = await extractPageImages(pdfjs, page, viewport, index + 1, options.signal);
+      pages[index].images = images;
+      imageCount += images.length;
+    } catch (error) {
+      if (options.signal.aborted) throw error;
+      pages[index].images = [];
+    }
+    page.cleanup?.();
+    options.onProgress({
+      stage: imagesStage(index + 1, pages.length),
+      page: index + 1,
+      totalPages: pages.length,
+      percent: 60 + Math.round(((index + 1) / pages.length) * 26),
+    });
+    await yieldToBrowser();
+  }
+
+  return imageCount;
+}
+
+function imagesStage(page: number, total: number): string {
+  return total === 1 ? 'Extracting images…' : `Extracting images from page ${page} of ${total}…`;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
@@ -347,12 +412,16 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
     let previewText = '';
     let previewImages: string[] | undefined;
     let scanned = false;
+    let imageCount = 0;
 
     if (options.mode === 'text') {
       const { pages, totalChars } = await extractTextPages(loaded.pdf, options);
       assertNotAborted(options.signal);
 
-      scanned = totalChars < Math.max(20, pages.length * 20);
+      scanned = totalChars < Math.max(4, pages.length * 4);
+      if (!scanned && pages.length) {
+        imageCount = await extractImagesForPages(loaded.pdf, pages, options);
+      }
       sections = pages.map((page) => pageSection(page));
       previewText = blockPreviewText(
         pages.flatMap((page) => page.blocks),
@@ -395,10 +464,11 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
       previewImages = previews;
       previewText = '';
       scanned = false;
+      imageCount = pages.length;
     }
 
     assertNotAborted(options.signal);
-    options.onProgress({ stage: 'Packaging your .docx…', percent: 88 });
+    options.onProgress({ stage: 'Packaging your .docx…', percent: 90 });
 
     const document = new Document({
       creator: 'PDF ⇄ Word',
@@ -415,6 +485,7 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
       filename: outputFilename(file.name, 'docx'),
       kind: 'docx',
       pageCount: loaded.pdf.numPages,
+      images: imageCount,
       previewText: previewText || undefined,
       previewImages,
       scanned,

@@ -14,6 +14,7 @@ export interface ConversionResult {
   filename: string;
   kind: OutputKind;
   pageCount: number;
+  images?: number;
   previewImages?: string[];
   previewText?: string;
   scanned?: boolean;

@@ -59,6 +59,7 @@ const elements = {
   downloadButton: byId<HTMLButtonElement>('download-button'),
   downloadLabel: byId('download-label'),
   printButton: byId<HTMLButtonElement>('print-button'),
+  printHint: byId('print-hint'),
   imageModeButton: byId<HTMLButtonElement>('image-mode-button'),
   convertAnother: byId<HTMLButtonElement>('convert-another'),
   dragOverlay: byId('drag-overlay'),
@@ -457,7 +458,9 @@ function renderPreview(result: ConversionResult, mode: ConversionMode, pdfMode: 
     text.textContent = result.previewText;
     const caption = document.createElement('p');
     caption.className = 'preview-caption';
-    caption.textContent = 'Preview of the extracted text. Open the .docx to see the full document.';
+    caption.textContent = result.images
+      ? 'Preview of the extracted text. Images from the PDF are embedded in the .docx.'
+      : 'Preview of the extracted text. Open the .docx to see the full document.';
     elements.resultPreview.append(text, caption);
     return;
   }
@@ -486,13 +489,22 @@ function showResult(
   elements.resultMeta.textContent = `${result.filename} · ${formatBytes(result.blob.size)} · ${formatPages(result.pageCount)}`;
   elements.downloadLabel.textContent = result.kind === 'pdf' ? 'Download PDF' : 'Download Word file';
   elements.printButton.hidden = result.kind !== 'pdf';
+  elements.printHint.hidden = result.kind !== 'pdf';
   elements.imageModeButton.hidden = !(result.scanned && mode === 'pdf-to-docx' && pdfMode === 'text');
   elements.resultDetails.replaceChildren();
 
-  const method = mode === 'pdf-to-docx' ? (pdfMode === 'text' ? 'Editable text' : 'Exact layout (images)') : 'High-quality pages';
+  const method =
+    mode === 'pdf-to-docx'
+      ? pdfMode === 'text'
+        ? result.images
+          ? 'Editable text + images'
+          : 'Editable text'
+        : 'Exact layout (images)'
+      : 'High-quality + searchable text';
   addDetail('Source', `${source.name} · ${formatBytes(source.size)}`);
   addDetail('Output', `${result.filename} · ${formatBytes(result.blob.size)}`);
   addDetail('Pages', String(result.pageCount));
+  if (result.images && result.images > 0) addDetail('Images', String(result.images));
   addDetail('Method', method);
 
   if (result.scanned) {

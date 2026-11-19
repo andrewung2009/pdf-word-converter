@@ -10,6 +10,10 @@ A fast, private Word ↔ PDF converter that runs entirely in your browser.
 
 ![PDF ⇄ Word result screen](docs/result.png)
 
+### PDF → Word with images
+
+![PDF to Word result with images](docs/pdf-to-word.png)
+
 ## Why this exists
 
 Most online converters upload your documents to a server. This one doesn't. The app is a static site hosted on GitHub Pages, and every conversion happens inside your browser tab. No account, no uploads, no tracking, no ads.
@@ -17,8 +21,8 @@ Most online converters upload your documents to a server. This one doesn't. The 
 ## Features
 
 - **Word → PDF** — keeps page layout, tables, lists, and images close to the original.
-- **PDF → Word** — rebuilds editable text, headings, lists, and alignment; an exact-layout (image) mode is available for design-heavy or scanned PDFs.
-- **Selectable-text PDFs** — after a Word conversion, use **Print / Save as PDF** to produce a high-quality PDF with real text.
+- **PDF → Word** — rebuilds editable text, headings, lists, alignment, and embedded images; an exact-layout (image) mode is available for design-heavy or scanned PDFs.
+- **Selectable text** — the downloaded PDF includes a searchable, selectable text layer; use **Print / Save as PDF** for fully vector text. PDF → Word output contains real, editable text.
 - **Everything stays local** — no server, no file uploads, no analytics.
 - **Fast and focused** — one file, one click, page-by-page progress, and cancel at any time.
 - **Friendly edge cases** — encrypted PDF password prompt, scanned-PDF detection, legacy `.doc` guidance, size warnings, and clear errors.
@@ -29,7 +33,7 @@ Most online converters upload your documents to a server. This one doesn't. The 
 
 1. Pick a direction: **Word → PDF** or **PDF → Word**.
 2. Drop a `.docx` or `.pdf` file, or choose one. You can also try the bundled sample.
-3. Press **Convert** (PDF → Word lets you choose editable text or exact layout).
+3. Press **Convert** (PDF → Word lets you choose editable text + images or exact layout).
 4. Download the result. Your original file is never modified.
 
 PDF → Word creates a new `.docx` you can open in Microsoft Word, Google Docs, LibreOffice, or Pages.
@@ -38,11 +42,11 @@ PDF → Word creates a new `.docx` you can open in Microsoft Word, Google Docs, 
 
 ### Word → PDF
 
-The `.docx` is rendered in the browser with `docx-preview`, using metric-compatible fonts where possible. Each page is captured at high resolution and assembled into a PDF with `jsPDF`. Because browsers cannot generate a vector PDF from a Word layout without a server, the downloaded PDF is page-accurate but image-based. Use **Print / Save as PDF** if you need selectable text.
+The `.docx` is rendered in the browser with `docx-preview`, using metric-compatible fonts where possible. Each page is captured at high resolution and assembled into a PDF with `jsPDF`. Because browsers cannot generate a vector PDF from a Word layout without a server, the visual page is image-based; an invisible text layer is added so the downloaded PDF is searchable and selectable for Latin scripts. Use **Print / Save as PDF** for a fully vector PDF with complete font shaping.
 
 ### PDF → Word
 
-`pdf.js` extracts the text layer and positions. Lines, words, headings, alignment, and simple lists are reconstructed into real Word paragraphs with the `docx` library. Complex multi-column layouts may not match exactly. If the PDF has no text layer (a scan), the app detects it and offers **Exact layout (images)** mode, which embeds each page as an image in Word.
+`pdf.js` extracts the text layer, positions, and embedded images. Lines, words, headings, alignment, and simple lists are reconstructed into real Word paragraphs with the `docx` library, and images are placed in reading order. Complex multi-column layouts may not match exactly. If the PDF has no text layer (a scan), the app detects it and offers **Exact layout (images)** mode, which embeds each page as an image in Word.
 
 ## Privacy
 
@@ -57,6 +61,7 @@ The `.docx` is rendered in the browser with `docx-preview`, using metric-compati
 - **Word:** modern `.docx` only. Legacy `.doc` files must be saved as `.docx` first.
 - **PDF:** standard PDFs, including password-protected PDFs (you'll be prompted).
 - **Size:** no server limit. Around 25 MB or 200 pages is a comfortable range; very large files depend on available device memory. Files over 100 MB are blocked with a clear message.
+- **Images:** images embedded in PDFs are extracted and placed in reading order in the Word output. Vector-only elements such as charts drawn without image data remain text/vectors where possible.
 - **OCR:** not included. Scanned PDFs are detected and can be converted in exact-layout mode.
 - **Browsers:** current Chrome, Edge, Firefox, and Safari.
 
@@ -90,7 +95,7 @@ npm run test:e2e  # production build + Playwright browser tests
 npx playwright install chromium   # first run only
 ```
 
-The end-to-end tests exercise Word → PDF, PDF → Word, scanned-PDF detection and image fallback, legacy `.doc` handling, dark mode, and mobile layout.
+The end-to-end tests exercise Word → PDF (including the searchable text layer), PDF → Word with embedded images, scanned-PDF detection and image fallback, legacy `.doc` handling, dark mode, and mobile layout.
 
 ## Deployment
 
