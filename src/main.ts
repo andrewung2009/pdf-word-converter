@@ -710,7 +710,9 @@ function showResult(
     : 'Try the high-fidelity engine';
 
   const canSwitchExact =
-    context.mode === 'pdf-to-docx' && context.style === 'selectable' && Boolean(result.scanned);
+    context.mode === 'pdf-to-docx' &&
+    context.style === 'selectable' &&
+    (Boolean(result.scanned) || Boolean(context.fallbackReason));
   elements.switchExact.hidden = !canSwitchExact;
   elements.switchExact.textContent = 'Switch to Exact layout';
 
