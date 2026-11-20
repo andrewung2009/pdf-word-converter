@@ -331,8 +331,43 @@ function wrap(text, maxChars) {
   return lines;
 }
 
+async function makeMultiSectionDocx() {
+  const sections = [1, 2, 3].map((pageNumber) => ({
+    properties: {
+      page: {
+        size: { width: 11906, height: 16838 },
+        margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+      },
+    },
+    children: [
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { after: 200 },
+        children: [new TextRun({ text: `Section ${pageNumber}`, font: 'Calibri' })],
+      }),
+      new Paragraph({
+        spacing: { after: 160, line: 300 },
+        children: [
+          new TextRun({
+            text: `This is page ${pageNumber} of a three-section document. It checks that same-size Word sections become separate PDF pages.`,
+            size: 22,
+            font: 'Calibri',
+          }),
+        ],
+      }),
+    ],
+  }));
+  const document = new Document({
+    creator: 'PDF ⇄ Word',
+    title: 'Multi-section sample',
+    sections,
+  });
+  await writeFile(join(outputDir, 'multi-section.docx'), await Packer.toBuffer(document));
+}
+
 await mkdir(outputDir, { recursive: true });
 await makeDocx();
 await makePdf();
 await makeScannedPdf();
-console.log('Created public/samples/sample.docx, sample.pdf, and scanned-sample.pdf');
+await makeMultiSectionDocx();
+console.log('Created sample.docx, sample.pdf, scanned-sample.pdf, and multi-section.docx');

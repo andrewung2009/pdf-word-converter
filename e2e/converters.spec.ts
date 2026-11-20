@@ -8,6 +8,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 const sampleDocx = join(process.cwd(), 'public', 'samples', 'sample.docx');
 const samplePdf = join(process.cwd(), 'public', 'samples', 'sample.pdf');
 const cmykPdf = join(process.cwd(), 'public', 'samples', 'cmyk-sample.pdf');
+const multiSectionDocx = join(process.cwd(), 'public', 'samples', 'multi-section.docx');
 const scannedPdf = join(process.cwd(), 'public', 'samples', 'scanned-sample.pdf');
 const resultsDir = join(process.cwd(), 'test-results');
 
@@ -103,6 +104,24 @@ test('Word to PDF exact downloads a searchable image PDF', async ({ page }) => {
   const extracted = await extractPdfText(bytes);
   expect(extracted.text).toContain('Welcome to PDF');
   expect(extracted.text).toContain('Page two');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('Word to PDF keeps same-size sections as separate pages', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setInputFiles('#file-input', multiSectionDocx);
+  await page.check('input[name="output-style"][value="exact"]');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#result-meta')).toContainText('3 pages');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-sections.pdf');
+  await download.saveAs(outputPath);
+
+  const pdf = await PDFDocument.load(await readFile(outputPath));
+  expect(pdf.getPageCount()).toBe(3);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

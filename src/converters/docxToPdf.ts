@@ -189,6 +189,29 @@ function addSelectableTextLayer(pdf: jsPDF, page: HTMLElement): void {
   }
 }
 
+function splitMergedSections(stage: HTMLElement): void {
+  const sections = Array.from(stage.querySelectorAll<HTMLElement>('.docx-wrapper > section.docx'));
+  for (const section of sections) {
+    const articles = Array.from(section.children).filter(
+      (element): element is HTMLElement => element.tagName === 'ARTICLE',
+    );
+    if (articles.length < 2) continue;
+
+    const header = Array.from(section.children).find((element) => element.tagName === 'HEADER');
+    const footer = Array.from(section.children).find((element) => element.tagName === 'FOOTER');
+    let anchor = section;
+
+    for (let index = 1; index < articles.length; index += 1) {
+      const page = section.cloneNode(false) as HTMLElement;
+      if (header) page.appendChild(header.cloneNode(true));
+      page.appendChild(articles[index]);
+      if (footer) page.appendChild(footer.cloneNode(true));
+      anchor.after(page);
+      anchor = page;
+    }
+  }
+}
+
 function findRenderedPages(stage: HTMLElement): HTMLElement[] {
   const pages = Array.from(stage.querySelectorAll<HTMLElement>('.docx-wrapper > section.docx'));
   if (pages.length) return pages;
@@ -251,9 +274,10 @@ export async function convertDocxToPdf(file: File, options: DocxToPdfOptions): P
     assertNotAborted(options.signal);
 
     mapFonts(options.renderStage);
-    options.onProgress({ stage: 'Waiting for images and fonts…', percent: 16 });
+    options.onProgress({ stage: 'Waiting for images and fonts.', percent: 16 });
     await waitForAssets(options.renderStage);
     assertNotAborted(options.signal);
+    splitMergedSections(options.renderStage);
 
     const pages = findRenderedPages(options.renderStage);
     if (!pages.length) {

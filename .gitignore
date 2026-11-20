@@ -8,3 +8,5 @@ playwright-report
 *.local
 .env
 .env.*
+# Input documents placed in the package root are local test files, not part of the app.
+/*.pdf

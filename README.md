@@ -78,6 +78,8 @@ Scanned PDFs have no selectable text; the app detects this and offers **Exact la
 - **Size:** no server limit. Around 25 MB or 200 pages is a comfortable range; very large files depend on available device memory. Files over 100 MB are blocked.
 - **Images:** images in PDFs are extracted and embedded in the Word output. Vector-only charts may remain approximated.
 - **High-fidelity engine:** ~50–55 MB first download, cached; slower and more memory-hungry than fast mode, especially on phones.
+- **High-fidelity fidelity:** reconstructed pages may differ from the PDF in page breaks, vector rules/borders, barcodes, and exact spacing. Use Exact layout for a pixel-perfect, non-editable copy.
+- **Multi-section Word files:** same-size sections are split into separate PDF pages; content that overflows a reconstructed section may produce a taller page.
 - **OCR:** not included. Scanned PDFs can be converted in exact-layout mode.
 - **Browsers:** current Chrome, Edge, Firefox, and Safari.
 
@@ -113,7 +115,7 @@ npm run test:e2e  # production build + Playwright browser tests
 npx playwright install chromium   # first run only
 ```
 
-The end-to-end suite covers both output styles in both directions, the print route, searchable image PDFs, fast and high-fidelity PDF → Word (including CMYK images), exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
+The end-to-end suite covers both output styles in both directions, the print route, searchable image PDFs, multi-section pagination, fast and high-fidelity PDF → Word (including CMYK images), exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
 
 ## Deployment
 
