@@ -58,7 +58,7 @@ Because browsers cannot produce a vector PDF from a Word layout without a server
 
 The fast converter uses `pdf.js` to extract text and images, then reconstructs paragraphs, headings, lists, and images with the `docx` library. Layout is approximate.
 
-The optional high-fidelity engine uses **pdf2docx** (PyMuPDF) compiled to WebAssembly through Pyodide. It runs in a separate local iframe/worker, reconstructs flowing text, tables, and images, and returns a `.docx`. It is best-effort: complex layouts can still shift, and the engine downloads once on first use.
+The optional high-fidelity engine uses **pdf2docx** (PyMuPDF) compiled to WebAssembly through Pyodide. It runs in a separate local iframe/worker, reconstructs flowing text, tables, and images, and returns a `.docx`. It is best-effort: complex layouts can still shift, and the engine downloads once on first use. Unusual image color spaces such as CMYK are normalized before embedding, so a single problematic image does not abort the conversion.
 
 Scanned PDFs have no selectable text; the app detects this and offers **Exact layout**, which embeds each page as an image. OCR is not included.
 
@@ -113,7 +113,7 @@ npm run test:e2e  # production build + Playwright browser tests
 npx playwright install chromium   # first run only
 ```
 
-The end-to-end suite covers both output styles in both directions, the print route, searchable image PDFs, fast and high-fidelity PDF → Word, exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
+The end-to-end suite covers both output styles in both directions, the print route, searchable image PDFs, fast and high-fidelity PDF → Word (including CMYK images), exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
 
 ## Deployment
 

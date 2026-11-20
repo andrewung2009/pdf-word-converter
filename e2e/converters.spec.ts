@@ -7,6 +7,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const sampleDocx = join(process.cwd(), 'public', 'samples', 'sample.docx');
 const samplePdf = join(process.cwd(), 'public', 'samples', 'sample.pdf');
+const cmykPdf = join(process.cwd(), 'public', 'samples', 'cmyk-sample.pdf');
 const scannedPdf = join(process.cwd(), 'public', 'samples', 'scanned-sample.pdf');
 const resultsDir = join(process.cwd(), 'test-results');
 
@@ -138,15 +139,16 @@ test('PDF to Word fast mode converts editable text and images', async ({ page })
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('PDF to Word high fidelity uses the on-device engine', async ({ page }) => {
+test('PDF to Word high fidelity handles CMYK images and uses the on-device engine', async ({ page }) => {
   test.slow();
   const errors = watchErrors(page);
   await page.click('#mode-pdf-docx');
-  await page.setInputFiles('#file-input', samplePdf);
+  await page.setInputFiles('#file-input', cmykPdf);
   await page.click('#convert-button');
   await expect(page.locator('#engine-dialog')).toBeVisible();
   await page.click('#engine-high');
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 300_000 });
+  await expect(page.locator('#result-alert')).toBeHidden();
   await expect(page.locator('#result-details')).toContainText('pdf2docx');
   await expect(page.locator('#result-details')).toContainText('high fidelity');
   expect(await page.evaluate(() => localStorage.getItem('pdfword-pdf-engine'))).toBe('high');
@@ -160,9 +162,9 @@ test('PDF to Word high fidelity uses the on-device engine', async ({ page }) => 
   expect(bytes.subarray(0, 2).toString()).toBe('PK');
   const zip = await JSZip.loadAsync(bytes);
   const documentXml = await zip.file('word/document.xml')?.async('string');
-  expect(documentXml).toContain('Welcome to PDF');
-  expect(documentXml).toContain('Page two');
+  expect(documentXml).toContain('CMYK image conversion test');
   expect(documentXml).toContain('<w:drawing>');
+  expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
