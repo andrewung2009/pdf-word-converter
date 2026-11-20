@@ -3,17 +3,21 @@ import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import { AppError, isAbortError, UserCancelledError } from './lib/errors';
 import { byId, clamp, prefersReducedMotion } from './lib/dom';
-import { downloadBlob, formatBytes, formatPages, inspectFile } from './lib/files';
-import type { ConversionMode, ConversionResult, PdfOutputMode, ProgressUpdate } from './types';
+import { downloadBlob, formatBytes, formatPages, inspectFile, outputFilename } from './lib/files';
+import { convertPdfWithHighFidelity, destroyHighFidelityEngine, type EngineStage } from './lib/highFidelityEngine';
+import { probePdf } from './lib/pdfProbe';
+import type { ConversionMode, ConversionResult, EngineChoice, OutputStyle, ProgressUpdate } from './types';
 
 type Theme = 'light' | 'dark';
 
 const MODE_KEY = 'pdfword-mode';
 const THEME_KEY = 'pdfword-theme';
-const PDF_MODE_KEY = 'pdfword-pdf-mode';
+const STYLE_KEY = 'pdfword-output-style';
+const ENGINE_KEY = 'pdfword-pdf-engine';
 
 const elements = {
   themeToggle: byId<HTMLButtonElement>('theme-toggle'),
+  shareButton: byId<HTMLButtonElement>('share-button'),
   modeDocxPdf: byId<HTMLButtonElement>('mode-docx-pdf'),
   modePdfDocx: byId<HTMLButtonElement>('mode-pdf-docx'),
   toolCard: byId('tool-card'),
@@ -29,8 +33,11 @@ const elements = {
   fileName: byId('file-name'),
   fileSub: byId('file-sub'),
   removeFile: byId<HTMLButtonElement>('remove-file'),
-  pdfOptions: byId<HTMLFieldSetElement>('pdf-options'),
-  docxNote: byId('docx-note'),
+  outputOptions: byId<HTMLFieldSetElement>('output-options'),
+  selectableDesc: byId('selectable-desc'),
+  exactDesc: byId('exact-desc'),
+  outputHint: byId('output-hint'),
+  engineSettings: byId<HTMLButtonElement>('engine-settings'),
   fileWarning: byId('file-warning'),
   fileWarningTitle: byId('file-warning-title'),
   fileWarningText: byId('file-warning-text'),
@@ -56,11 +63,13 @@ const elements = {
   resultAlert: byId('result-alert'),
   resultAlertTitle: byId('result-alert-title'),
   resultAlertText: byId('result-alert-text'),
-  downloadButton: byId<HTMLButtonElement>('download-button'),
-  downloadLabel: byId('download-label'),
-  printButton: byId<HTMLButtonElement>('print-button'),
-  printHint: byId('print-hint'),
-  imageModeButton: byId<HTMLButtonElement>('image-mode-button'),
+  primaryButton: byId<HTMLButtonElement>('primary-button'),
+  primaryLabel: byId('primary-label'),
+  primaryIconUse: byId('primary-icon-use'),
+  fallbackDownload: byId<HTMLButtonElement>('fallback-download'),
+  resultHint: byId('result-hint'),
+  tryHighFidelity: byId<HTMLButtonElement>('try-high-fidelity'),
+  switchExact: byId<HTMLButtonElement>('switch-exact'),
   convertAnother: byId<HTMLButtonElement>('convert-another'),
   dragOverlay: byId('drag-overlay'),
   toastStack: byId('toast-stack'),
@@ -70,30 +79,36 @@ const elements = {
   passwordMessage: byId('password-message'),
   passwordError: byId('password-error'),
   passwordCancel: byId<HTMLButtonElement>('password-cancel'),
+  engineDialog: byId<HTMLDialogElement>('engine-dialog'),
+  engineCancel: byId<HTMLButtonElement>('engine-cancel'),
+  engineFast: byId<HTMLButtonElement>('engine-fast'),
+  engineHigh: byId<HTMLButtonElement>('engine-high'),
   renderStage: byId('render-stage'),
 };
 
 const state: {
   mode: ConversionMode;
+  style: OutputStyle;
+  engine: EngineChoice | null;
   file: File | null;
   fileLabel: string;
   busy: boolean;
   abort: AbortController | null;
   result: ConversionResult | null;
-  lastMode: ConversionMode | null;
-  lastPdfMode: PdfOutputMode;
 } = {
   mode: readMode(),
+  style: readStyle(),
+  engine: readEngineChoice(),
   file: null,
   fileLabel: '',
   busy: false,
   abort: null,
   result: null,
-  lastMode: null,
-  lastPdfMode: readPdfMode(),
 };
 
 let passwordResolver: ((value: string | null) => void) | null = null;
+let engineChoiceResolver: ((value: EngineChoice | null) => void) | null = null;
+let primaryAction: 'download' | 'print' = 'download';
 let dragDepth = 0;
 
 function safeStorageGet(key: string): string | null {
@@ -116,13 +131,18 @@ function readMode(): ConversionMode {
   return safeStorageGet(MODE_KEY) === 'pdf-to-docx' ? 'pdf-to-docx' : 'docx-to-pdf';
 }
 
-function readPdfMode(): PdfOutputMode {
-  return safeStorageGet(PDF_MODE_KEY) === 'image' ? 'image' : 'text';
+function readStyle(): OutputStyle {
+  return safeStorageGet(STYLE_KEY) === 'exact' ? 'exact' : 'selectable';
 }
 
-function currentPdfMode(): PdfOutputMode {
-  const checked = document.querySelector<HTMLInputElement>('input[name="pdf-mode"]:checked');
-  return checked?.value === 'image' ? 'image' : 'text';
+function readEngineChoice(): EngineChoice | null {
+  const value = safeStorageGet(ENGINE_KEY);
+  return value === 'high' || value === 'fast' ? value : null;
+}
+
+function currentStyle(): OutputStyle {
+  const checked = document.querySelector<HTMLInputElement>('input[name="output-style"]:checked');
+  return checked?.value === 'exact' ? 'exact' : 'selectable';
 }
 
 function showToast(message: string, duration = 3400): void {
@@ -182,10 +202,44 @@ function updateModeCopy(): void {
   elements.fileInput.accept = wordMode
     ? '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     : '.pdf,application/pdf';
-  elements.pdfOptions.hidden = wordMode || !state.file;
-  elements.docxNote.hidden = !wordMode;
+  elements.outputOptions.hidden = false;
   elements.convertButton.textContent = wordMode ? 'Convert to PDF' : 'Convert to Word';
   elements.formatNote.title = wordMode ? 'Accepts .docx only. For .doc, save as .docx first.' : 'Accepts .pdf files.';
+  updateOutputCopy();
+}
+
+function updateOutputCopy(): void {
+  const wordMode = state.mode === 'docx-to-pdf';
+  if (wordMode) {
+    elements.selectableDesc.textContent =
+      'Save a real, selectable PDF through the print dialog. Layout and images stay exact.';
+    elements.exactDesc.textContent = 'Download a page-perfect image PDF with a searchable text layer.';
+    elements.outputHint.textContent =
+      state.style === 'selectable'
+        ? 'You’ll confirm “Save as PDF” in your browser’s print dialog.'
+        : 'Downloads an image PDF immediately; text is searchable but not vector.';
+    elements.engineSettings.hidden = true;
+    return;
+  }
+
+  elements.selectableDesc.textContent =
+    'High-fidelity editable text and images. Complex layouts may still shift.';
+  elements.exactDesc.textContent = 'Each page becomes an image. Perfect visuals, but the text is not editable.';
+  elements.outputHint.textContent =
+    state.style === 'selectable'
+      ? state.engine === 'high'
+        ? 'High-fidelity engine selected. First use downloads about 50–55 MB.'
+        : state.engine === 'fast'
+          ? 'Fast converter selected. High fidelity is available for better tables and images.'
+          : 'Choose the conversion engine on your first high-fidelity conversion.'
+      : 'Exact layout stores each page as an image; text is not editable.';
+  elements.engineSettings.hidden = state.style !== 'selectable';
+  elements.engineSettings.textContent =
+    state.engine === 'high'
+      ? 'Engine: High fidelity · Change'
+      : state.engine === 'fast'
+        ? 'Engine: Fast · Change'
+        : 'Engine: Choose high-fidelity or fast mode';
 }
 
 function setTabsEnabled(enabled: boolean): void {
@@ -238,9 +292,9 @@ function updateFilePanel(): void {
   elements.fileName.textContent = state.file.name;
   elements.fileName.title = state.file.name;
   elements.fileSub.textContent = `${formatBytes(state.file.size)} · ${kindLabel}`;
-  elements.pdfOptions.hidden = state.mode !== 'pdf-to-docx';
-  elements.docxNote.hidden = state.mode !== 'docx-to-pdf';
+  elements.outputOptions.hidden = false;
   elements.convertButton.textContent = state.mode === 'docx-to-pdf' ? 'Convert to PDF' : 'Convert to Word';
+  updateOutputCopy();
 
   const sizeMb = state.file.size / (1024 * 1024);
   if (sizeMb > 25) {
@@ -265,15 +319,17 @@ function resetToIdle(options: { keepFile?: boolean; message?: string } = {}): vo
   elements.resultState.hidden = true;
   elements.busyTitle.textContent = 'Converting…';
   elements.busySub.textContent = 'Reading your file';
+  elements.progress.classList.remove('is-indeterminate');
   elements.progressFill.style.width = '0%';
   elements.progress.setAttribute('aria-valuenow', '0');
   elements.progressPercent.textContent = '0%';
   elements.progressLabel.textContent = state.file?.name ?? '';
   elements.cancelButton.disabled = false;
+  elements.primaryButton.disabled = false;
+  primaryAction = 'download';
   hideAlerts();
   clearPreview();
   state.result = null;
-  state.lastMode = null;
 
   if (!keepFile) {
     state.file = null;
@@ -385,12 +441,72 @@ async function handleFile(file: File): Promise<void> {
 function setProgress(update: ProgressUpdate): void {
   if (typeof update.percent === 'number') {
     const percent = clamp(Math.round(update.percent), 0, 100);
+    elements.progress.classList.remove('is-indeterminate');
     elements.progressFill.style.width = `${percent}%`;
     elements.progress.setAttribute('aria-valuenow', String(percent));
     elements.progressPercent.textContent = `${percent}%`;
   }
   elements.busySub.textContent = update.stage;
   elements.progress.setAttribute('aria-valuetext', update.stage);
+}
+
+function setEngineProgress(stage: EngineStage): void {
+  const copy: Record<EngineStage, string> = {
+    loading: 'Loading the high-fidelity engine (one-time download)…',
+    converting: 'Converting with the high-fidelity engine…',
+    packaging: 'Packaging your .docx…',
+  };
+  elements.progress.classList.add('is-indeterminate');
+  elements.progressFill.style.width = '38%';
+  elements.progress.removeAttribute('aria-valuenow');
+  elements.progressPercent.textContent = '…';
+  elements.busySub.textContent = copy[stage];
+  elements.progress.setAttribute('aria-valuetext', copy[stage]);
+}
+
+function askEngineChoice(): Promise<EngineChoice | null> {
+  if (engineChoiceResolver) return Promise.resolve(null);
+  elements.engineDialog.showModal();
+  return new Promise((resolve) => {
+    engineChoiceResolver = resolve;
+  });
+}
+
+function finishEngineChoice(choice: EngineChoice | null): void {
+  const resolve = engineChoiceResolver;
+  engineChoiceResolver = null;
+  if (elements.engineDialog.open) elements.engineDialog.close();
+  if (choice) {
+    state.engine = choice;
+    safeStorageSet(ENGINE_KEY, choice);
+    updateOutputCopy();
+  }
+  resolve?.(choice);
+}
+
+async function shareApp(): Promise<void> {
+  const url = window.location.href.split('#')[0];
+  const payload = {
+    title: 'PDF ⇄ Word',
+    text: 'Private Word and PDF conversion, right in your browser.',
+    url,
+  };
+
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share(payload);
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Link copied to clipboard.');
+  } catch {
+    showToast(`Share this link: ${url}`, 6500);
+  }
 }
 
 function askPassword(incorrect: boolean): Promise<string | null> {
@@ -431,7 +547,10 @@ function addDetail(label: string, value: string): void {
   elements.resultDetails.append(row);
 }
 
-function renderPreview(result: ConversionResult, mode: ConversionMode, pdfMode: PdfOutputMode): void {
+function renderPreview(
+  result: ConversionResult,
+  context: { mode: ConversionMode; style: OutputStyle; engine?: EngineChoice },
+): void {
   elements.resultPreview.replaceChildren();
 
   if (result.previewImages?.length) {
@@ -452,15 +571,18 @@ function renderPreview(result: ConversionResult, mode: ConversionMode, pdfMode: 
     return;
   }
 
-  if (mode === 'pdf-to-docx' && result.previewText && pdfMode === 'text') {
+  if (context.mode === 'pdf-to-docx' && context.style === 'selectable' && result.previewText) {
     const text = document.createElement('div');
     text.className = 'text-preview';
     text.textContent = result.previewText;
     const caption = document.createElement('p');
     caption.className = 'preview-caption';
-    caption.textContent = result.images
-      ? 'Preview of the extracted text. Images from the PDF are embedded in the .docx.'
-      : 'Preview of the extracted text. Open the .docx to see the full document.';
+    caption.textContent =
+      context.engine === 'high'
+        ? 'Preview of the extracted text. The high-fidelity .docx also includes tables and images.'
+        : result.images
+          ? 'Preview of the extracted text. Images from the PDF are embedded in the .docx.'
+          : 'Preview of the extracted text. Open the .docx to see the full document.';
     elements.resultPreview.append(text, caption);
     return;
   }
@@ -468,7 +590,7 @@ function renderPreview(result: ConversionResult, mode: ConversionMode, pdfMode: 
   const empty = document.createElement('div');
   empty.className = 'preview-empty';
   empty.textContent =
-    mode === 'pdf-to-docx'
+    context.mode === 'pdf-to-docx'
       ? 'No text preview is available. Download the Word file to view it.'
       : 'Preview is not available. Download the PDF to view it.';
   elements.resultPreview.append(empty);
@@ -477,66 +599,147 @@ function renderPreview(result: ConversionResult, mode: ConversionMode, pdfMode: 
 function showResult(
   result: ConversionResult,
   source: File,
-  mode: ConversionMode,
-  pdfMode: PdfOutputMode,
+  context: {
+    mode: ConversionMode;
+    style: OutputStyle;
+    engine?: EngineChoice;
+    fallbackReason?: string;
+  },
 ): void {
   state.result = result;
-  state.lastMode = mode;
+  const wordOutput = context.mode === 'docx-to-pdf';
+  const selectableWord = wordOutput && context.style === 'selectable';
+
   elements.idleState.hidden = true;
   elements.busyState.hidden = true;
   elements.resultState.hidden = false;
-  elements.resultTitle.textContent = result.kind === 'pdf' ? 'Done. Your PDF is ready.' : 'Done. Your Word file is ready.';
-  elements.resultMeta.textContent = `${result.filename} · ${formatBytes(result.blob.size)} · ${formatPages(result.pageCount)}`;
-  elements.downloadLabel.textContent = result.kind === 'pdf' ? 'Download PDF' : 'Download Word file';
-  elements.printButton.hidden = result.kind !== 'pdf';
-  elements.printHint.hidden = result.kind !== 'pdf';
-  elements.imageModeButton.hidden = !(result.scanned && mode === 'pdf-to-docx' && pdfMode === 'text');
+  elements.resultTitle.textContent = selectableWord
+    ? 'Ready to save your selectable PDF.'
+    : result.kind === 'pdf'
+      ? 'Done. Your PDF is ready.'
+      : 'Done. Your Word file is ready.';
+  elements.resultMeta.textContent = selectableWord
+    ? `${result.filename} · ${formatPages(result.pageCount)} · Selectable PDF`
+    : `${result.filename} · ${formatBytes(result.blob.size)} · ${formatPages(result.pageCount)}`;
+
+  primaryAction = selectableWord ? 'print' : 'download';
+  elements.primaryButton.disabled = false;
+  elements.primaryButton.hidden = false;
+  elements.primaryLabel.textContent = selectableWord
+    ? 'Save selectable PDF'
+    : result.kind === 'pdf'
+      ? 'Download PDF'
+      : 'Download Word file';
+  elements.primaryIconUse.setAttribute('href', selectableWord ? '#icon-printer' : '#icon-download');
+  elements.fallbackDownload.hidden = !selectableWord;
+  elements.fallbackDownload.textContent = 'Download image PDF instead';
+  elements.resultHint.hidden = true;
+  elements.tryHighFidelity.hidden = true;
+  elements.switchExact.hidden = true;
   elements.resultDetails.replaceChildren();
 
   const method =
-    mode === 'pdf-to-docx'
-      ? pdfMode === 'text'
-        ? result.images
-          ? 'Editable text + images'
-          : 'Editable text'
-        : 'Exact layout (images)'
-      : 'High-quality + searchable text';
+    context.mode === 'pdf-to-docx'
+      ? context.style === 'exact'
+        ? 'Exact layout (page images)'
+        : context.engine === 'high'
+          ? 'Selectable text + images (high fidelity)'
+          : 'Selectable text + images (fast)'
+      : context.style === 'selectable'
+        ? 'Selectable text (vector via print)'
+        : 'Exact layout (image PDF + searchable layer)';
+
   addDetail('Source', `${source.name} · ${formatBytes(source.size)}`);
-  addDetail('Output', `${result.filename} · ${formatBytes(result.blob.size)}`);
+  addDetail(
+    'Output',
+    selectableWord
+      ? `${result.filename} · vector PDF via print`
+      : `${result.filename} · ${formatBytes(result.blob.size)}`,
+  );
   addDetail('Pages', String(result.pageCount));
   if (result.images && result.images > 0) addDetail('Images', String(result.images));
+  if (context.mode === 'pdf-to-docx' && context.style === 'selectable') {
+    addDetail(
+      'Engine',
+      context.engine === 'high'
+        ? 'pdf2docx (on-device)'
+        : context.engine === 'fast'
+          ? 'Fast converter (on-device)'
+          : 'On-device',
+    );
+  }
   addDetail('Method', method);
+  if (selectableWord) addDetail('Fallback', `${formatBytes(result.blob.size)} image PDF`);
 
-  if (result.scanned) {
+  const hint = selectableWord
+    ? 'In the print dialog, choose “Save as PDF.” The file stays on your device.'
+    : context.mode === 'pdf-to-docx' && context.style === 'exact'
+      ? 'Pages are images; text is not editable.'
+      : context.mode === 'pdf-to-docx' && context.engine === 'high'
+        ? 'Editable text and images. Complex layouts can still shift.'
+        : context.mode === 'pdf-to-docx' && context.engine === 'fast'
+          ? 'Fast editable text and images. Use the high-fidelity engine for better tables and layouts.'
+          : 'Page-perfect image PDF with a searchable text layer.';
+  if (!context.fallbackReason && hint) {
+    elements.resultHint.textContent = hint;
+    elements.resultHint.hidden = false;
+  }
+
+  elements.resultAlert.classList.remove('warning');
+  elements.resultAlert.hidden = true;
+  if (context.fallbackReason) {
+    elements.resultAlert.classList.add('warning');
+    showResultAlert('High-fidelity engine unavailable', `${context.fallbackReason} The fast converter was used.`);
+  } else if (result.scanned) {
     elements.resultAlert.classList.add('warning');
     showResultAlert(
       'This PDF has little or no selectable text',
-      'It looks like a scan. Convert it in “Exact layout (images)” mode to keep the page looking right. OCR is not included.',
+      'It looks like a scan. Switch to Exact layout to keep the page looking right. OCR is not included.',
     );
-  } else {
-    elements.resultAlert.classList.remove('warning');
-    elements.resultAlert.hidden = true;
   }
 
-  renderPreview(result, mode, pdfMode);
+  const canTryHigh =
+    context.mode === 'pdf-to-docx' &&
+    context.style === 'selectable' &&
+    context.engine === 'fast' &&
+    !result.scanned &&
+    !context.fallbackReason;
+  elements.tryHighFidelity.hidden = !canTryHigh;
+  elements.tryHighFidelity.textContent = context.fallbackReason
+    ? 'Try high fidelity again'
+    : 'Try the high-fidelity engine';
 
-  if (mode === 'pdf-to-docx' && pdfMode === 'text') {
-    elements.imageModeButton.hidden = !result.scanned;
-  }
+  const canSwitchExact =
+    context.mode === 'pdf-to-docx' && context.style === 'selectable' && Boolean(result.scanned);
+  elements.switchExact.hidden = !canSwitchExact;
+  elements.switchExact.textContent = 'Switch to Exact layout';
 
+  renderPreview(result, context);
   elements.resultState.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
-  window.setTimeout(() => elements.downloadButton.focus({ preventScroll: true }), 80);
+  window.setTimeout(() => elements.primaryButton.focus({ preventScroll: true }), 80);
 }
 
-async function startConversion(forcedPdfMode?: PdfOutputMode): Promise<void> {
+async function startConversion(
+  overrides: { style?: OutputStyle; engine?: EngineChoice } = {},
+): Promise<void> {
   if (!state.file || state.busy) return;
 
   const source = state.file;
   const mode = state.mode;
-  const pdfMode = mode === 'pdf-to-docx' ? forcedPdfMode ?? currentPdfMode() : 'text';
-  if (mode === 'pdf-to-docx') {
-    state.lastPdfMode = pdfMode;
-    safeStorageSet(PDF_MODE_KEY, pdfMode);
+  const style = overrides.style ?? state.style;
+  if (style !== state.style) {
+    state.style = style;
+    safeStorageSet(STYLE_KEY, style);
+    const radio = document.querySelector<HTMLInputElement>(`input[name="output-style"][value="${style}"]`);
+    if (radio) radio.checked = true;
+    updateOutputCopy();
+  }
+
+  let engine = mode === 'pdf-to-docx' ? overrides.engine ?? state.engine : null;
+  if (mode === 'pdf-to-docx' && style === 'selectable' && !engine) {
+    const choice = await askEngineChoice();
+    if (!choice) return;
+    engine = choice;
   }
 
   state.busy = true;
@@ -546,21 +749,42 @@ async function startConversion(forcedPdfMode?: PdfOutputMode): Promise<void> {
   elements.resultState.hidden = true;
   elements.busyState.hidden = false;
   elements.resultState.setAttribute('aria-busy', 'true');
-  elements.busyTitle.textContent = mode === 'docx-to-pdf' ? 'Converting Word → PDF' : 'Converting PDF → Word';
+  elements.busyTitle.textContent =
+    mode === 'docx-to-pdf'
+      ? style === 'selectable'
+        ? 'Preparing your selectable PDF'
+        : 'Converting Word → PDF'
+      : style === 'exact'
+        ? 'Converting PDF → Word (exact layout)'
+        : engine === 'high'
+          ? 'Converting PDF → Word (high fidelity)'
+          : 'Converting PDF → Word';
   elements.busySub.textContent = mode === 'docx-to-pdf' ? 'Reading your Word document…' : 'Reading your PDF…';
   elements.progressLabel.textContent = source.name;
+  elements.progress.classList.remove('is-indeterminate');
   elements.progressFill.style.width = '0%';
   elements.progressPercent.textContent = '0%';
   elements.progress.setAttribute('aria-valuenow', '0');
   elements.cancelButton.disabled = false;
   setTabsEnabled(false);
-  elements.busyState.focus?.({ preventScroll: true });
 
   const signal = state.abort.signal;
   const onProgress = (update: ProgressUpdate) => setProgress(update);
+  let fallbackReason: string | undefined;
+  let engineUsed: EngineChoice | undefined;
+  let result: ConversionResult | null = null;
+
+  const fastPdfToWord = async (): Promise<ConversionResult> => {
+    const { convertPdfToDocx } = await import('./converters/pdfToDocx');
+    return convertPdfToDocx(source, {
+      signal,
+      onProgress,
+      mode: 'text',
+      getPassword: askPassword,
+    });
+  };
 
   try {
-    let result: ConversionResult;
     if (mode === 'docx-to-pdf') {
       const { convertDocxToPdf } = await import('./converters/docxToPdf');
       result = await convertDocxToPdf(source, {
@@ -568,17 +792,64 @@ async function startConversion(forcedPdfMode?: PdfOutputMode): Promise<void> {
         onProgress,
         renderStage: elements.renderStage,
       });
-    } else {
+    } else if (style === 'exact') {
       const { convertPdfToDocx } = await import('./converters/pdfToDocx');
       result = await convertPdfToDocx(source, {
         signal,
         onProgress,
-        mode: pdfMode,
+        mode: 'image',
         getPassword: askPassword,
       });
+    } else if (engine === 'high') {
+      setProgress({ stage: 'Checking your PDF…', percent: 4 });
+      const probe = await probePdf(source, signal);
+      if (probe.encrypted) {
+        fallbackReason = 'High-fidelity mode does not support password-protected PDFs.';
+        engineUsed = 'fast';
+        elements.busySub.textContent = 'Password-protected PDF; using fast mode…';
+        result = await fastPdfToWord();
+      } else if (probe.scanned) {
+        engineUsed = 'fast';
+        elements.busySub.textContent = 'This PDF looks scanned; using fast mode…';
+        result = await fastPdfToWord();
+      } else {
+        try {
+          elements.busySub.textContent = 'Starting the high-fidelity engine…';
+          const pdfBytes = await source.arrayBuffer();
+          if (signal.aborted) throw new UserCancelledError();
+          const docx = await convertPdfWithHighFidelity(pdfBytes, {
+            signal,
+            onStatus: (stage) => setEngineProgress(stage),
+          });
+          if (signal.aborted) throw new UserCancelledError();
+          result = {
+            blob: docx,
+            filename: outputFilename(source.name, 'docx'),
+            kind: 'docx',
+            pageCount: probe.pageCount,
+            previewText: probe.previewText,
+            scanned: false,
+          };
+          engineUsed = 'high';
+        } catch (error) {
+          if (isAbortError(error) || signal.aborted) throw error;
+          fallbackReason =
+            error instanceof AppError
+              ? error.detail ?? error.title
+              : 'The high-fidelity engine could not finish this PDF.';
+          engineUsed = 'fast';
+          elements.busySub.textContent = 'High-fidelity engine failed; using fast mode…';
+          result = await fastPdfToWord();
+        }
+      }
+    } else {
+      engineUsed = 'fast';
+      result = await fastPdfToWord();
     }
+
+    if (!result) throw new AppError('Conversion produced no result', 'Try again with a different file.');
     if (signal.aborted) throw new UserCancelledError();
-    showResult(result, source, mode, pdfMode);
+    showResult(result, source, { mode, style, engine: engineUsed, fallbackReason });
   } catch (error) {
     resetToIdle({ keepFile: true });
     if (error instanceof UserCancelledError || isAbortError(error) || signal.aborted) {
@@ -600,8 +871,20 @@ async function startConversion(forcedPdfMode?: PdfOutputMode): Promise<void> {
   }
 }
 
-async function loadSample(): Promise<void> {
-  if (state.busy) return;
+async function openPrintView(filename: string): Promise<void> {
+  try {
+    const { printDocxStage } = await import('./converters/docxToPdf');
+    await printDocxStage(elements.renderStage, filename);
+  } catch (error) {
+    if (error instanceof AppError) {
+      showResultAlert(error.title, error.detail ?? 'Use the image PDF fallback instead.');
+    } else {
+      showResultAlert('Couldn’t open the print view', 'Use the image PDF fallback instead, or try a different browser.');
+    }
+  }
+}
+
+async function loadSample(): Promise<void> {  if (state.busy) return;
   const extension = state.mode === 'docx-to-pdf' ? 'docx' : 'pdf';
   elements.sampleButton.disabled = true;
   elements.sampleLabel.textContent = 'Loading sample…';
@@ -626,6 +909,7 @@ async function loadSample(): Promise<void> {
 }
 
 function wireEvents(): void {
+  elements.shareButton.addEventListener('click', () => void shareApp());
   elements.modeDocxPdf.addEventListener('click', () => setMode('docx-to-pdf'));
   elements.modePdfDocx.addEventListener('click', () => setMode('pdf-to-docx'));
 
@@ -675,11 +959,30 @@ function wireEvents(): void {
   elements.changeFile.addEventListener('click', () => elements.fileInput.click());
   elements.convertButton.addEventListener('click', () => void startConversion());
 
-  document.querySelectorAll<HTMLInputElement>('input[name="pdf-mode"]').forEach((radio) => {
+  document.querySelectorAll<HTMLInputElement>('input[name="output-style"]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      state.lastPdfMode = currentPdfMode();
-      safeStorageSet(PDF_MODE_KEY, state.lastPdfMode);
+      state.style = currentStyle();
+      safeStorageSet(STYLE_KEY, state.style);
+      updateOutputCopy();
     });
+  });
+
+  elements.engineSettings.addEventListener('click', () => {
+    void askEngineChoice();
+  });
+  elements.engineHigh.addEventListener('click', () => finishEngineChoice('high'));
+  elements.engineFast.addEventListener('click', () => finishEngineChoice('fast'));
+  elements.engineCancel.addEventListener('click', () => finishEngineChoice(null));
+  elements.engineDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    finishEngineChoice(null);
+  });
+  elements.engineDialog.addEventListener('close', () => {
+    if (engineChoiceResolver) {
+      const resolve = engineChoiceResolver;
+      engineChoiceResolver = null;
+      resolve(null);
+    }
   });
 
   elements.cancelButton.addEventListener('click', () => {
@@ -688,31 +991,38 @@ function wireEvents(): void {
     state.abort?.abort();
   });
 
-  elements.downloadButton.addEventListener('click', () => {
+  elements.primaryButton.addEventListener('click', () => {
     if (!state.result) return;
+    if (primaryAction === 'print') {
+      void openPrintView(state.result.filename);
+      return;
+    }
     downloadBlob(state.result.blob, state.result.filename);
     showToast(`Download started: ${state.result.filename}`);
   });
 
-  elements.printButton.addEventListener('click', () => {
-    void (async () => {
-      try {
-        const { printDocxStage } = await import('./converters/docxToPdf');
-        await printDocxStage(elements.renderStage);
-      } catch (error) {
-        if (error instanceof AppError) showResultAlert(error.title, error.detail ?? 'Try downloading the PDF instead.');
-        else showResultAlert('Couldn’t open the print view', 'Use Download instead, or try a different browser.');
-      }
-    })();
+  elements.fallbackDownload.addEventListener('click', () => {
+    if (!state.result) return;
+    downloadBlob(state.result.blob, state.result.filename);
+    showToast(`Downloaded image PDF: ${state.result.filename}`);
   });
 
-  elements.imageModeButton.addEventListener('click', () => {
+  elements.tryHighFidelity.addEventListener('click', () => {
     if (state.busy || !state.file) return;
-    const imageRadio = document.querySelector<HTMLInputElement>('input[name="pdf-mode"][value="image"]');
-    if (imageRadio) imageRadio.checked = true;
-    state.lastPdfMode = 'image';
-    safeStorageSet(PDF_MODE_KEY, 'image');
-    void startConversion('image');
+    state.engine = 'high';
+    safeStorageSet(ENGINE_KEY, 'high');
+    updateOutputCopy();
+    void startConversion({ style: 'selectable', engine: 'high' });
+  });
+
+  elements.switchExact.addEventListener('click', () => {
+    if (state.busy || !state.file) return;
+    state.style = 'exact';
+    safeStorageSet(STYLE_KEY, 'exact');
+    const radio = document.querySelector<HTMLInputElement>('input[name="output-style"][value="exact"]');
+    if (radio) radio.checked = true;
+    updateOutputCopy();
+    void startConversion({ style: 'exact' });
   });
 
   elements.convertAnother.addEventListener('click', () => {
@@ -781,12 +1091,15 @@ function init(): void {
   initTheme();
   updateTabs();
   updateModeCopy();
-  const savedPdfMode = state.lastPdfMode;
-  const radio = document.querySelector<HTMLInputElement>(`input[name="pdf-mode"][value="${savedPdfMode}"]`);
-  if (radio) radio.checked = true;
+  const styleRadio = document.querySelector<HTMLInputElement>(
+    `input[name="output-style"][value="${state.style}"]`,
+  );
+  if (styleRadio) styleRadio.checked = true;
+  updateOutputCopy();
   setTabsEnabled(true);
   wireEvents();
   elements.passwordError.textContent = 'That password didn’t work. Try again.';
+  window.addEventListener('pagehide', () => destroyHighFidelityEngine());
   if (state.mode === 'pdf-to-docx') void preloadForMode('pdf-to-docx');
 }
 

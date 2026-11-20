@@ -1,11 +1,11 @@
-{
+﻿{
   "name": "pdf-word-converter",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Private, client-side Word to PDF and PDF to Word converter for GitHub Pages.",
   "homepage": "https://andrewung2009.github.io/pdf-word-converter/",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/andrewung2009/pdf-word-converter.git"
@@ -33,6 +33,7 @@
     "docx-preview": "^0.4.1",
     "html2canvas-pro": "^2.6.4",
     "jspdf": "^4.2.1",
+    "pdf2docx-wasm": "^0.1.0",
     "pdfjs-dist": "^6.5.438"
   },
   "devDependencies": {

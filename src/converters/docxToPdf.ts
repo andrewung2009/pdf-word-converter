@@ -351,7 +351,15 @@ export async function convertDocxToPdf(file: File, options: DocxToPdfOptions): P
   }
 }
 
-export async function printDocxStage(stage: HTMLElement): Promise<void> {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export async function printDocxStage(stage: HTMLElement, filename?: string): Promise<void> {
   const wrapper = stage.querySelector('.docx-wrapper');
   if (!wrapper) {
     throw new AppError('Nothing to print', 'Convert the document first, then try printing again.');
@@ -389,7 +397,8 @@ export async function printDocxStage(stage: HTMLElement): Promise<void> {
     }
   `;
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><base href="${document.baseURI}">${styles}<style>${printCss}</style></head><body>${wrapper.outerHTML}</body></html>`;
+  const printTitle = escapeHtml((filename ?? 'document').replace(/\.pdf$/i, ''));
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${printTitle}</title><base href="${document.baseURI}">${styles}<style>${printCss}</style></head><body>${wrapper.outerHTML}</body></html>`;
 
   await new Promise<void>((resolve, reject) => {
     const timeout = window.setTimeout(() => {

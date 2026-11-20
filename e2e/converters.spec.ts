@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+﻿import { expect, test, type Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import JSZip from 'jszip';
@@ -19,6 +19,23 @@ function watchErrors(page: Page): string[] {
   return errors;
 }
 
+async function extractPdfText(bytes: Buffer): Promise<{ pages: number; text: string }> {
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
+  const pdf = await loadingTask.promise;
+  let text = '';
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    text += `${content.items
+      .filter((item) => 'str' in item)
+      .map((item) => (item as { str: string }).str)
+      .join(' ')}\n`;
+  }
+  const pages = pdf.numPages;
+  await loadingTask.destroy();
+  return { pages, text };
+}
+
 test.beforeEach(async ({ page }) => {
   await mkdir(resultsDir, { recursive: true });
   await page.goto('/');
@@ -26,66 +43,86 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => document.fonts.ready);
 });
 
-test('desktop: Word to PDF conversion, preview, and download', async ({ page }) => {
+test('Word to PDF selectable uses the print flow and keeps images', async ({ page }) => {
   const errors = watchErrors(page);
   await page.screenshot({ path: join(resultsDir, '01-landing-light.png'), fullPage: true });
 
   await page.setInputFiles('#file-input', sampleDocx);
   await expect(page.locator('#file-panel')).toBeVisible();
-  await expect(page.locator('#file-name')).toHaveText('sample.docx');
+  await expect(page.locator('#output-options')).toBeVisible();
   await page.screenshot({ path: join(resultsDir, '02-file-selected.png'), fullPage: true });
 
   await page.click('#convert-button');
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator('#result-title')).toContainText('PDF is ready');
+  await expect(page.locator('#primary-label')).toHaveText('Save selectable PDF');
+  await expect(page.locator('#fallback-download')).toBeVisible();
   await expect(page.locator('#result-preview img.page-shot').first()).toBeVisible();
-  await page.screenshot({ path: join(resultsDir, '03-result-word-to-pdf.png'), fullPage: true });
+  await page.screenshot({ path: join(resultsDir, '03-result-word-selectable.png'), fullPage: true });
 
-  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#download-button')]);
-  const outputPath = join(resultsDir, 'converted.pdf');
+  await page.click('#primary-button');
+  await page.waitForFunction(
+    () => {
+      const frame = document.querySelector('iframe');
+      return Boolean(frame?.contentDocument?.querySelector('.docx-wrapper'));
+    },
+    { timeout: 30_000 },
+  );
+  const printInfo = await page.evaluate(() => {
+    const frame = document.querySelector('iframe');
+    return {
+      title: frame?.contentDocument?.title ?? '',
+      text: frame?.contentDocument?.body?.innerText ?? '',
+    };
+  });
+  expect(printInfo.title).toBe('sample');
+  expect(printInfo.text).toContain('Welcome to PDF');
+  expect(printInfo.text).toContain('Page two');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('Word to PDF exact downloads a searchable image PDF', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setInputFiles('#file-input', sampleDocx);
+  await page.check('input[name="output-style"][value="exact"]');
+  await expect(page.locator('#output-hint')).toContainText('image PDF');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#primary-label')).toHaveText('Download PDF');
+  await page.screenshot({ path: join(resultsDir, '04-result-word-exact.png'), fullPage: true });
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-exact.pdf');
   await download.saveAs(outputPath);
 
   const bytes = await readFile(outputPath);
   expect(bytes.subarray(0, 4).toString()).toBe('%PDF');
   const pdf = await PDFDocument.load(bytes);
   expect(pdf.getPageCount()).toBeGreaterThanOrEqual(2);
-
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
-  const textPdf = await loadingTask.promise;
-  let extracted = '';
-  for (let pageNumber = 1; pageNumber <= textPdf.numPages; pageNumber += 1) {
-    const textPage = await textPdf.getPage(pageNumber);
-    const content = await textPage.getTextContent();
-    extracted += `${content.items
-      .filter((item) => 'str' in item)
-      .map((item) => (item as { str: string }).str)
-      .join(' ')}\n`;
-  }
-  await loadingTask.destroy();
-  expect(extracted).toContain('Welcome to PDF');
-  expect(extracted).toContain('Page two');
+  const extracted = await extractPdfText(bytes);
+  expect(extracted.text).toContain('Welcome to PDF');
+  expect(extracted.text).toContain('Page two');
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('desktop: PDF to Word conversion with editable text', async ({ page }) => {
+test('PDF to Word fast mode converts editable text and images', async ({ page }) => {
   const errors = watchErrors(page);
   await page.click('#mode-pdf-docx');
   await page.setInputFiles('#file-input', samplePdf);
-  await expect(page.locator('#file-name')).toHaveText('sample.pdf');
-  await expect(page.locator('#pdf-options')).toBeVisible();
-
+  await expect(page.locator('#engine-settings')).toBeVisible();
   await page.click('#convert-button');
+  await expect(page.locator('#engine-dialog')).toBeVisible();
+  await page.click('#engine-fast');
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#result-title')).toContainText('Word file is ready');
+  await expect(page.locator('#result-details')).toContainText('Fast converter');
   await expect(page.locator('#result-preview .text-preview')).toBeVisible();
-  await expect(page.locator('#result-details')).toContainText('Editable text + images');
-  await expect(page.locator('#result-details')).toContainText('Images');
-  await expect(page.locator('#print-button')).toBeHidden();
-  await page.screenshot({ path: join(resultsDir, '04-result-pdf-to-word.png'), fullPage: true });
+  expect(await page.evaluate(() => localStorage.getItem('pdfword-pdf-engine'))).toBe('fast');
+  await page.screenshot({ path: join(resultsDir, '05-result-pdf-fast.png'), fullPage: true });
 
-  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#download-button')]);
-  const outputPath = join(resultsDir, 'converted.docx');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-fast.docx');
   await download.saveAs(outputPath);
 
   const bytes = await readFile(outputPath);
@@ -96,52 +133,108 @@ test('desktop: PDF to Word conversion with editable text', async ({ page }) => {
   expect(documentXml).toContain('Page two');
   expect(documentXml).toContain('<w:drawing>');
   expect((documentXml?.match(/<w:drawing>/g) ?? []).length).toBeGreaterThanOrEqual(2);
-  const media = Object.keys(zip.files).filter((name) => name.startsWith('word/media/'));
-  expect(media.length).toBeGreaterThan(0);
+  expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('scanned PDF detects missing text and can fall back to exact layout', async ({ page }) => {
+test('PDF to Word high fidelity uses the on-device engine', async ({ page }) => {
+  test.slow();
+  const errors = watchErrors(page);
+  await page.click('#mode-pdf-docx');
+  await page.setInputFiles('#file-input', samplePdf);
+  await page.click('#convert-button');
+  await expect(page.locator('#engine-dialog')).toBeVisible();
+  await page.click('#engine-high');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 300_000 });
+  await expect(page.locator('#result-details')).toContainText('pdf2docx');
+  await expect(page.locator('#result-details')).toContainText('high fidelity');
+  expect(await page.evaluate(() => localStorage.getItem('pdfword-pdf-engine'))).toBe('high');
+  await page.screenshot({ path: join(resultsDir, '06-result-pdf-high.png'), fullPage: true });
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-high.docx');
+  await download.saveAs(outputPath);
+
+  const bytes = await readFile(outputPath);
+  expect(bytes.subarray(0, 2).toString()).toBe('PK');
+  const zip = await JSZip.loadAsync(bytes);
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+  expect(documentXml).toContain('Welcome to PDF');
+  expect(documentXml).toContain('Page two');
+  expect(documentXml).toContain('<w:drawing>');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('PDF to Word exact keeps pages as images', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.click('#mode-pdf-docx');
+  await page.setInputFiles('#file-input', samplePdf);
+  await page.check('input[name="output-style"][value="exact"]');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#result-hint')).toContainText('Pages are images');
+  await page.screenshot({ path: join(resultsDir, '07-result-pdf-exact.png'), fullPage: true });
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-pdf-exact.docx');
+  await download.saveAs(outputPath);
+
+  const bytes = await readFile(outputPath);
+  const zip = await JSZip.loadAsync(bytes);
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+  expect(documentXml).not.toContain('Welcome to PDF');
+  expect(documentXml).toContain('<w:drawing>');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('scanned PDF warns and can switch to Exact layout', async ({ page }) => {
   const errors = watchErrors(page);
   await page.click('#mode-pdf-docx');
   await page.setInputFiles('#file-input', scannedPdf);
   await page.click('#convert-button');
-
+  await expect(page.locator('#engine-dialog')).toBeVisible();
+  await page.click('#engine-fast');
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator('#result-alert')).toBeVisible();
   await expect(page.locator('#result-alert')).toContainText('little or no selectable text');
-  await expect(page.locator('#image-mode-button')).toBeVisible();
-  await page.screenshot({ path: join(resultsDir, '05-scanned-warning.png'), fullPage: true });
+  await expect(page.locator('#switch-exact')).toBeVisible();
+  await page.screenshot({ path: join(resultsDir, '08-scanned-warning.png'), fullPage: true });
 
-  await page.click('#image-mode-button');
+  await page.click('#switch-exact');
   await expect(page.locator('#busy-state')).toBeVisible();
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#result-alert')).toBeHidden();
-  await expect(page.locator('#result-preview img.page-shot').first()).toBeVisible();
-
-  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#download-button')]);
-  const outputPath = join(resultsDir, 'scanned.docx');
-  await download.saveAs(outputPath);
-  const bytes = await readFile(outputPath);
-  expect(bytes.subarray(0, 2).toString()).toBe('PK');
-  await page.screenshot({ path: join(resultsDir, '06-scanned-image-mode.png'), fullPage: true });
+  await expect(page.locator('#result-details')).toContainText('Exact layout');
+  await page.screenshot({ path: join(resultsDir, '09-scanned-exact.png'), fullPage: true });
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('rejects old .doc files with clear guidance and supports dark mode', async ({ page }) => {
+test('share button copies the app link and rejects old .doc files', async ({ page }) => {
   const errors = watchErrors(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: async (text: string) => { (window as unknown as { __copied?: string }).__copied = text; } },
+      configurable: true,
+    });
+  });
+  await page.reload();
+  await page.click('#share-button');
+  await expect(page.locator('.toast')).toContainText('Link copied');
+  const copied = await page.evaluate(() => (window as unknown as { __copied?: string }).__copied ?? '');
+  expect(copied).toContain('/');
+
   const legacyDoc = join(resultsDir, 'legacy.doc');
   await writeFile(legacyDoc, Buffer.from('not a real doc'));
-
   await page.setInputFiles('#file-input', legacyDoc);
-  await expect(page.locator('#idle-alert')).toBeVisible();
   await expect(page.locator('#idle-alert')).toContainText('Older .doc files');
 
   await page.click('#theme-toggle');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.screenshot({ path: join(resultsDir, '07-landing-dark.png'), fullPage: true });
+  await page.screenshot({ path: join(resultsDir, '10-landing-dark.png'), fullPage: true });
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
@@ -151,11 +244,11 @@ test('mobile layout renders cleanly', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(page.locator('#hero-title')).toBeVisible();
-  await page.screenshot({ path: join(resultsDir, '08-mobile-light.png'), fullPage: true });
+  await page.screenshot({ path: join(resultsDir, '11-mobile-light.png'), fullPage: true });
 
   await page.setInputFiles('#file-input', sampleDocx);
   await expect(page.locator('#file-panel')).toBeVisible();
-  await page.screenshot({ path: join(resultsDir, '09-mobile-file.png'), fullPage: true });
+  await page.screenshot({ path: join(resultsDir, '12-mobile-file.png'), fullPage: true });
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

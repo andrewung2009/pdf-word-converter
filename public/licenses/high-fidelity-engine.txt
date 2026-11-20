@@ -1,0 +1,18 @@
+High-fidelity PDF → Word engine notices
+=======================================
+
+The optional high-fidelity engine runs in your browser and is built from:
+
+- pdf2docx — https://github.com/ArtifexSoftware/pdf2docx — AGPL-3.0
+- PyMuPDF — https://github.com/pymupdf/PyMuPDF — AGPL-3.0
+- Pyodide — https://pyodide.org — MPL-2.0
+- numpy — https://numpy.org — BSD-3-Clause
+- OpenCV — https://opencv.org — Apache-2.0
+- lxml — https://lxml.de — BSD-3-Clause
+- python-docx — https://github.com/python-openxml/python-docx — MIT
+- fonttools — https://github.com/fonttools/fonttools — MIT
+- typing_extensions — https://github.com/python/typing_extensions — PSF-2.0
+
+The engine assets are served from this site under /engine/pdf2docx/ and include the pdf2docx package LICENSE file. The corresponding source for pdf2docx is available at the repository above, and the app source is available at https://github.com/andrewung2009/pdf-word-converter.
+
+This application is licensed under AGPL-3.0-or-later. See AGPL-3.0.txt.

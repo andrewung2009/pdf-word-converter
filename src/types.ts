@@ -1,5 +1,7 @@
 export type ConversionMode = 'docx-to-pdf' | 'pdf-to-docx';
 export type PdfOutputMode = 'text' | 'image';
+export type OutputStyle = 'selectable' | 'exact';
+export type EngineChoice = 'high' | 'fast';
 export type OutputKind = 'pdf' | 'docx';
 
 export interface ProgressUpdate {
