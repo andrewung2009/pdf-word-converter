@@ -9,7 +9,39 @@ export interface PdfProbe {
   scanned: boolean;
 }
 
-export async function probePdf(file: File, signal: AbortSignal): Promise<PdfProbe> {
+export async function getPdfPageCount(file: File): Promise<number | null> {
+  const pdfjs = await loadPdfjs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const task = pdfjs.getDocument({
+    data,
+    useSystemFonts: true,
+    ...pdfAssetUrls(),
+  });
+
+  try {
+    const pdf = await task.promise;
+    return pdf.numPages;
+  } catch (error) {
+    const name =
+      typeof error === 'object' && error !== null && 'name' in error
+        ? String((error as { name: unknown }).name)
+        : '';
+    if (name === 'PasswordException') return null;
+    return null;
+  } finally {
+    try {
+      await task.destroy();
+    } catch {
+      /* already destroyed */
+    }
+  }
+}
+
+export async function probePdf(
+  file: File,
+  signal: AbortSignal,
+  pages?: number[],
+): Promise<PdfProbe> {
   const pdfjs = await loadPdfjs();
   assertNotAborted(signal);
   const data = new Uint8Array(await file.arrayBuffer());
@@ -24,13 +56,17 @@ export async function probePdf(file: File, signal: AbortSignal): Promise<PdfProb
   try {
     const pdf = await task.promise;
     assertNotAborted(signal);
-    const pagesToRead = Math.min(pdf.numPages, 4);
+
+    const selectedPages = pages?.length
+      ? pages.filter((page) => page >= 1 && page <= pdf.numPages)
+      : Array.from({ length: pdf.numPages }, (_, index) => index + 1);
+    const pagesToRead = selectedPages.slice(0, 6);
     let textLength = 0;
     let previewText = '';
 
-    for (let index = 1; index <= pagesToRead; index += 1) {
+    for (const pageNumber of pagesToRead) {
       assertNotAborted(signal);
-      const page = await pdf.getPage(index);
+      const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
       const text = content.items
         .filter((item) => 'str' in item)
@@ -53,7 +89,10 @@ export async function probePdf(file: File, signal: AbortSignal): Promise<PdfProb
       scanned: textLength === 0,
     };
   } catch (error) {
-    const name = typeof error === 'object' && error !== null && 'name' in error ? String((error as { name: unknown }).name) : '';
+    const name =
+      typeof error === 'object' && error !== null && 'name' in error
+        ? String((error as { name: unknown }).name)
+        : '';
     if (name === 'PasswordException') {
       return { pageCount: 0, textLength: 0, previewText: '', encrypted: true, scanned: false };
     }

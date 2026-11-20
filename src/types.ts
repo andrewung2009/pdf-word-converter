@@ -16,6 +16,8 @@ export interface ConversionResult {
   filename: string;
   kind: OutputKind;
   pageCount: number;
+  sourcePageCount?: number;
+  selectedPages?: number[];
   images?: number;
   previewImages?: string[];
   previewText?: string;
@@ -30,10 +32,12 @@ export interface ConvertContext {
 
 export interface PdfToDocxOptions extends ConvertContext {
   mode: PdfOutputMode;
+  pages?: number[];
 }
 
 export interface DocxToPdfOptions extends ConvertContext {
   renderStage: HTMLElement;
+  pages?: number[];
 }
 
 export interface PasswordRequest {

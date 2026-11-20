@@ -1,7 +1,7 @@
 import { renderAsync } from 'docx-preview';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
-import { assertNotAborted, AppError, isAbortError, UserCancelledError } from '../lib/errors';
+import { assertNotAborted, AppError, isAbortError, PageRangeError, UserCancelledError } from '../lib/errors';
 import { outputFilename } from '../lib/files';
 import type { ConversionResult, DocxToPdfOptions } from '../types';
 
@@ -279,12 +279,25 @@ export async function convertDocxToPdf(file: File, options: DocxToPdfOptions): P
     assertNotAborted(options.signal);
     splitMergedSections(options.renderStage);
 
-    const pages = findRenderedPages(options.renderStage);
-    if (!pages.length) {
+    const allPages = findRenderedPages(options.renderStage);
+    if (!allPages.length) {
       throw new AppError(
         'Couldn’t read this Word document',
         'The file may be damaged or use an unsupported format. Try re-saving it as a .docx file.',
       );
+    }
+
+    const requestedPages = options.pages?.length
+      ? [...new Set(options.pages)].sort((a, b) => a - b)
+      : null;
+    if (requestedPages?.some((page) => page < 1 || page > allPages.length)) {
+      throw new PageRangeError(allPages.length);
+    }
+
+    const selectedSet = new Set(requestedPages ?? allPages.map((_, index) => index + 1));
+    const pages = allPages.filter((_, index) => selectedSet.has(index + 1));
+    for (let index = 0; index < allPages.length; index += 1) {
+      if (!selectedSet.has(index + 1)) allPages[index].remove();
     }
 
     const previewImages: string[] = [];
@@ -363,6 +376,8 @@ export async function convertDocxToPdf(file: File, options: DocxToPdfOptions): P
       filename: outputFilename(file.name, 'pdf'),
       kind: 'pdf',
       pageCount: pages.length,
+      sourcePageCount: allPages.length,
+      selectedPages: [...selectedSet].sort((a, b) => a - b),
       previewImages,
     };
   } catch (error) {

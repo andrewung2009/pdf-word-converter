@@ -131,6 +131,7 @@ function waitForReady(signal: AbortSignal): Promise<void> {
 export interface HighFidelityConvertOptions {
   signal: AbortSignal;
   onStatus: (stage: EngineStage) => void;
+  pages?: number[];
 }
 
 export async function convertPdfWithHighFidelity(
@@ -168,6 +169,7 @@ export async function convertPdfWithHighFidelity(
       id,
       pdf,
       assetBase: assetBase(),
+      pageIndexes: options.pages?.map((page) => page - 1),
     };
     frame.contentWindow?.postMessage(message, window.location.origin, [pdf]);
   });

@@ -125,7 +125,7 @@ workerScope.onmessage = (event: MessageEvent<EngineToWorker>) => {
       }
 
       const source = new Blob([pdf], { type: 'application/pdf' });
-      const result = await converter.convert(source);
+      const result = await converter.convert(source, message.pageIndexes);
       post({ type: 'status', id, stage: 'packaging' });
       const buffer = await result.arrayBuffer();
       post({ type: 'result', id, docx: buffer }, [buffer]);

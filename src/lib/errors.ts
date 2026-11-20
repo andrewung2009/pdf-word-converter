@@ -17,6 +17,21 @@ export class UserCancelledError extends Error {
   }
 }
 
+export class PageRangeError extends AppError {
+  readonly pageCount: number;
+
+  constructor(pageCount: number) {
+    super(
+      'Page range is out of range',
+      pageCount === 1
+        ? 'This document has only 1 page. Adjust the page numbers and try again.'
+        : `This document has ${pageCount} pages. Adjust the page numbers and try again.`,
+    );
+    this.name = 'PageRangeError';
+    this.pageCount = pageCount;
+  }
+}
+
 export function isAbortError(error: unknown): boolean {
   if (error instanceof UserCancelledError) return true;
   if (error instanceof DOMException && error.name === 'AbortError') return true;

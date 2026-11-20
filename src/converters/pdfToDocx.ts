@@ -9,7 +9,7 @@ import {
   TextRun,
 } from 'docx';
 import { clamp, yieldToBrowser } from '../lib/dom';
-import { AppError, assertNotAborted, isAbortError, UserCancelledError } from '../lib/errors';
+import { AppError, assertNotAborted, isAbortError, PageRangeError, UserCancelledError } from '../lib/errors';
 import { outputFilename } from '../lib/files';
 import { loadPdfjs, pdfAssetUrls } from '../lib/pdfjs';
 import type { ConversionResult, PdfToDocxOptions } from '../types';
@@ -25,6 +25,7 @@ interface LoadedPdf {
 }
 
 interface PageExtract {
+  pageNumber: number;
   width: number;
   height: number;
   blocks: TextBlock[];
@@ -32,6 +33,7 @@ interface PageExtract {
 }
 
 interface ImagePage {
+  pageNumber: number;
   width: number;
   height: number;
 }
@@ -230,14 +232,19 @@ function buildImageParagraph(image: ExtractedPdfImage): Paragraph {
   });
 }
 
-async function extractTextPages(pdf: LoadedPdf['pdf'], options: PdfToDocxOptions): Promise<{ pages: PageExtract[]; totalChars: number }> {
+async function extractTextPages(
+  pdf: LoadedPdf['pdf'],
+  pageNumbers: number[],
+  options: PdfToDocxOptions,
+): Promise<{ pages: PageExtract[]; totalChars: number }> {
   const pdfjs = await loadPdfjs();
   const pages: PageExtract[] = [];
   let totalChars = 0;
 
-  for (let index = 1; index <= pdf.numPages; index += 1) {
+  for (let position = 0; position < pageNumbers.length; position += 1) {
+    const pageNumber = pageNumbers[position];
     assertNotAborted(options.signal);
-    const page = await pdf.getPage(index);
+    const page = await pdf.getPage(pageNumber);
     assertNotAborted(options.signal);
 
     const viewport = page.getViewport({ scale: 1 });
@@ -269,14 +276,17 @@ async function extractTextPages(pdf: LoadedPdf['pdf'], options: PdfToDocxOptions
 
     const lines = clusterLines(items);
     const { blocks } = buildBlocks(lines, viewport.width);
-    pages.push({ width: viewport.width, height: viewport.height, blocks, images: [] });
+    pages.push({ pageNumber, width: viewport.width, height: viewport.height, blocks, images: [] });
 
     page.cleanup?.();
     options.onProgress({
-      stage: `Rebuilding page ${index} of ${pdf.numPages}…`,
-      page: index,
-      totalPages: pdf.numPages,
-      percent: 8 + Math.round((index / pdf.numPages) * 50),
+      stage:
+        pageNumbers.length === 1
+          ? `Rebuilding page ${pageNumber}…`
+          : `Rebuilding page ${pageNumber} (${position + 1} of ${pageNumbers.length})…`,
+      page: position + 1,
+      totalPages: pageNumbers.length,
+      percent: 8 + Math.round(((position + 1) / pageNumbers.length) * 50),
     });
     await yieldToBrowser();
   }
@@ -294,11 +304,11 @@ async function extractImagesForPages(
 
   for (let index = 0; index < pages.length; index += 1) {
     assertNotAborted(options.signal);
-    const page = await pdf.getPage(index + 1);
+    const page = await pdf.getPage(pages[index].pageNumber);
     assertNotAborted(options.signal);
     const viewport = page.getViewport({ scale: 1 });
     try {
-      const images = await extractPageImages(pdfjs, page, viewport, index + 1, options.signal);
+      const images = await extractPageImages(pdfjs, page, viewport, pages[index].pageNumber, options.signal);
       pages[index].images = images;
       imageCount += images.length;
     } catch (error) {
@@ -307,7 +317,7 @@ async function extractImagesForPages(
     }
     page.cleanup?.();
     options.onProgress({
-      stage: imagesStage(index + 1, pages.length),
+      stage: imagesStage(pages[index].pageNumber, index + 1, pages.length),
       page: index + 1,
       totalPages: pages.length,
       percent: 60 + Math.round(((index + 1) / pages.length) * 26),
@@ -318,8 +328,10 @@ async function extractImagesForPages(
   return imageCount;
 }
 
-function imagesStage(page: number, total: number): string {
-  return total === 1 ? 'Extracting images…' : `Extracting images from page ${page} of ${total}…`;
+function imagesStage(pageNumber: number, position: number, total: number): string {
+  return total === 1
+    ? `Extracting images from page ${pageNumber}…`
+    : `Extracting images from page ${pageNumber} (${position} of ${total})…`;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
@@ -352,16 +364,18 @@ function makePreview(canvas: HTMLCanvasElement): string {
 
 async function extractImagePages(
   pdf: LoadedPdf['pdf'],
+  pageNumbers: number[],
   options: PdfToDocxOptions,
 ): Promise<{ pages: ImagePage[]; images: Uint8Array[]; previews: string[] }> {
   const sections: ImagePage[] = [];
   const images: Uint8Array[] = [];
   const previews: string[] = [];
-  const renderScale = pdf.numPages > 80 ? 1.5 : 2;
+  const renderScale = pageNumbers.length > 80 ? 1.5 : 2;
 
-  for (let index = 1; index <= pdf.numPages; index += 1) {
+  for (let position = 0; position < pageNumbers.length; position += 1) {
+    const pageNumber = pageNumbers[position];
     assertNotAborted(options.signal);
-    const page = await pdf.getPage(index);
+    const page = await pdf.getPage(pageNumber);
     assertNotAborted(options.signal);
 
     const viewport = page.getViewport({ scale: renderScale });
@@ -378,19 +392,23 @@ async function extractImagePages(
 
     const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
     images.push(new Uint8Array(await blob.arrayBuffer()));
-    if (index === 1) previews.push(makePreview(canvas));
+    if (position === 0) previews.push(makePreview(canvas));
 
     sections.push({
+      pageNumber,
       width: viewport.width / renderScale,
       height: viewport.height / renderScale,
     });
 
     page.cleanup?.();
     options.onProgress({
-      stage: `Capturing page ${index} of ${pdf.numPages}…`,
-      page: index,
-      totalPages: pdf.numPages,
-      percent: 8 + Math.round((index / pdf.numPages) * 68),
+      stage:
+        pageNumbers.length === 1
+          ? `Capturing page ${pageNumber}…`
+          : `Capturing page ${pageNumber} (${position + 1} of ${pageNumbers.length})…`,
+      page: position + 1,
+      totalPages: pageNumbers.length,
+      percent: 8 + Math.round(((position + 1) / pageNumbers.length) * 68),
     });
 
     canvas.width = 1;
@@ -408,6 +426,17 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
     loaded = await loadPdf(file, options);
     assertNotAborted(options.signal);
 
+    const allPageNumbers = Array.from({ length: loaded.pdf.numPages }, (_, index) => index + 1);
+    const selectedPageNumbers = options.pages?.length
+      ? [...new Set(options.pages)].sort((a, b) => a - b)
+      : allPageNumbers;
+    if (!selectedPageNumbers.length) {
+      throw new AppError('No pages selected', 'Choose at least one page and try again.');
+    }
+    if (selectedPageNumbers.some((page) => page < 1 || page > loaded!.pdf.numPages)) {
+      throw new PageRangeError(loaded.pdf.numPages);
+    }
+
     let sections: ReturnType<typeof pageSection>[] = [];
     let previewText = '';
     let previewImages: string[] | undefined;
@@ -415,7 +444,7 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
     let imageCount = 0;
 
     if (options.mode === 'text') {
-      const { pages, totalChars } = await extractTextPages(loaded.pdf, options);
+      const { pages, totalChars } = await extractTextPages(loaded.pdf, selectedPageNumbers, options);
       assertNotAborted(options.signal);
 
       scanned = totalChars < Math.max(4, pages.length * 4);
@@ -430,7 +459,7 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
       previewImages = undefined;
     } else {
       options.onProgress({ stage: 'Preparing page images…', percent: 6 });
-      const { pages, images, previews } = await extractImagePages(loaded.pdf, options);
+      const { pages, images, previews } = await extractImagePages(loaded.pdf, selectedPageNumbers, options);
       assertNotAborted(options.signal);
 
       sections = pages.map((page, index) => {
@@ -484,7 +513,9 @@ export async function convertPdfToDocx(file: File, options: PdfToDocxOptions): P
       blob,
       filename: outputFilename(file.name, 'docx'),
       kind: 'docx',
-      pageCount: loaded.pdf.numPages,
+      pageCount: selectedPageNumbers.length,
+      sourcePageCount: loaded.pdf.numPages,
+      selectedPages: selectedPageNumbers,
       images: imageCount,
       previewText: previewText || undefined,
       previewImages,

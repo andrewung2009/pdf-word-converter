@@ -3,6 +3,7 @@ export interface EngineConvertRequest {
   id: number;
   pdf: ArrayBuffer;
   assetBase: string;
+  pageIndexes?: number[];
 }
 
 export interface EngineReadyMessage {

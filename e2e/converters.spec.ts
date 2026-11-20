@@ -126,16 +126,93 @@ test('Word to PDF keeps same-size sections as separate pages', async ({ page }) 
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('PDF to Word fast mode converts editable text and images', async ({ page }) => {
+test('Word to PDF converts only selected pages and prints only them', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setInputFiles('#file-input', multiSectionDocx);
+  await expect(page.locator('#file-panel')).toBeVisible();
+  await expect(page.locator('#page-total')).toContainText('Count after layout');
+  await page.check('input[name="output-style"][value="exact"]');
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '2');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#result-meta')).toContainText('1 of 3 pages');
+  await expect(page.locator('#result-details')).toContainText('Range');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-section-2.pdf');
+  await download.saveAs(outputPath);
+  const pdf = await PDFDocument.load(await readFile(outputPath));
+  expect(pdf.getPageCount()).toBe(1);
+
+  await page.click('#change-pages');
+  await expect(page.locator('#file-panel')).toBeVisible();
+  await expect(page.locator('#page-total')).toContainText('3 pages');
+  await page.check('input[name="output-style"][value="selectable"]');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await page.click('#primary-button');
+  await page.waitForFunction(
+    () => Boolean(document.querySelector('iframe')?.contentDocument?.querySelector('.docx-wrapper')),
+    { timeout: 30_000 },
+  );
+  const printText = await page.evaluate(
+    () => document.querySelector('iframe')?.contentDocument?.body?.innerText ?? '',
+  );
+  expect(printText).toContain('Section 2');
+  expect(printText).not.toContain('Section 1');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('page range validation catches bad and out-of-range pages', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.click('#mode-pdf-docx');
+  await page.setInputFiles('#file-input', samplePdf);
+  await expect(page.locator('#page-total')).toContainText('2 pages');
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '5');
+  await expect(page.locator('#page-error')).toContainText('2 pages');
+  await expect(page.locator('#convert-button')).toBeDisabled();
+
+  await page.fill('#page-input', 'abc');
+  await expect(page.locator('#page-error')).toContainText('valid page number');
+  await expect(page.locator('#convert-button')).toBeDisabled();
+
+  await page.fill('#page-input', '1-2');
+  await expect(page.locator('#convert-button')).toBeEnabled();
+
+  await page.click('#mode-docx-pdf');
+  await page.setInputFiles('#file-input', multiSectionDocx);
+  await page.waitForSelector('#file-panel', { state: 'visible' });
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '5');
+  await page.check('input[name="output-style"][value="exact"]');
+  await page.click('#convert-button');
+  await expect(page.locator('#inline-alert')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#page-total')).toContainText('3 pages');
+  await expect(page.locator('#page-error')).toContainText('3 pages');
+  await expect(page.locator('#convert-button')).toBeDisabled();
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('PDF to Word fast mode converts only selected pages', async ({ page }) => {
   const errors = watchErrors(page);
   await page.click('#mode-pdf-docx');
   await page.setInputFiles('#file-input', samplePdf);
   await expect(page.locator('#engine-settings')).toBeVisible();
+  await expect(page.locator('#page-total')).toContainText('2 pages');
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '2');
+  await expect(page.locator('#page-hint')).toContainText('1 page selected');
   await page.click('#convert-button');
   await expect(page.locator('#engine-dialog')).toBeVisible();
   await page.click('#engine-fast');
   await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#result-title')).toContainText('Word file is ready');
+  await expect(page.locator('#result-details')).toContainText('1 of 2 pages');
+  await expect(page.locator('#result-details')).toContainText('Range');
   await expect(page.locator('#result-details')).toContainText('Fast converter');
   await expect(page.locator('#result-preview .text-preview')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('pdfword-pdf-engine'))).toBe('fast');
@@ -149,11 +226,62 @@ test('PDF to Word fast mode converts editable text and images', async ({ page })
   expect(bytes.subarray(0, 2).toString()).toBe('PK');
   const zip = await JSZip.loadAsync(bytes);
   const documentXml = await zip.file('word/document.xml')?.async('string');
-  expect(documentXml).toContain('Welcome to PDF');
+  expect(documentXml).not.toContain('Welcome to PDF');
   expect(documentXml).toContain('Page two');
   expect(documentXml).toContain('<w:drawing>');
-  expect((documentXml?.match(/<w:drawing>/g) ?? []).length).toBeGreaterThanOrEqual(2);
   expect(Object.keys(zip.files).some((name) => name.startsWith('word/media/'))).toBe(true);
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('PDF to Word high fidelity honors a custom page range', async ({ page }) => {
+  test.slow();
+  const errors = watchErrors(page);
+  await page.click('#mode-pdf-docx');
+  await page.setInputFiles('#file-input', samplePdf);
+  await expect(page.locator('#page-total')).toContainText('2 pages');
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '2');
+  await page.click('#convert-button');
+  await expect(page.locator('#engine-dialog')).toBeVisible();
+  await page.click('#engine-high');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 300_000 });
+  await expect(page.locator('#result-alert')).toBeHidden();
+  await expect(page.locator('#result-details')).toContainText('1 of 2 pages');
+  await expect(page.locator('#result-details')).toContainText('pdf2docx');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-high-custom.docx');
+  await download.saveAs(outputPath);
+
+  const zip = await JSZip.loadAsync(await readFile(outputPath));
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+  expect(documentXml).not.toContain('Welcome to PDF');
+  expect(documentXml).toContain('Page two');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('PDF to Word exact embeds only selected pages', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.click('#mode-pdf-docx');
+  await page.setInputFiles('#file-input', samplePdf);
+  await expect(page.locator('#page-total')).toContainText('2 pages');
+  await page.locator('label.page-mode-option', { hasText: 'Custom' }).click();
+  await page.fill('#page-input', '2');
+  await page.check('input[name="output-style"][value="exact"]');
+  await page.click('#convert-button');
+  await expect(page.locator('#result-state')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#result-details')).toContainText('1 of 2 pages');
+  await expect(page.locator('#result-details')).toContainText('Exact layout');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#primary-button')]);
+  const outputPath = join(resultsDir, 'converted-exact-page-2.docx');
+  await download.saveAs(outputPath);
+  const zip = await JSZip.loadAsync(await readFile(outputPath));
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+  expect(documentXml).not.toContain('Welcome to PDF');
+  expect(documentXml).toContain('<w:drawing>');
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

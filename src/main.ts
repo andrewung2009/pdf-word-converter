@@ -1,11 +1,12 @@
 import './styles.css';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
-import { AppError, isAbortError, UserCancelledError } from './lib/errors';
+import { AppError, isAbortError, PageRangeError, UserCancelledError } from './lib/errors';
 import { byId, clamp, prefersReducedMotion } from './lib/dom';
 import { downloadBlob, formatBytes, formatPages, inspectFile, outputFilename } from './lib/files';
 import { convertPdfWithHighFidelity, destroyHighFidelityEngine, type EngineStage } from './lib/highFidelityEngine';
-import { probePdf } from './lib/pdfProbe';
+import { formatPageList, parsePageSelection } from './lib/pageRange';
+import { getPdfPageCount, probePdf } from './lib/pdfProbe';
 import type { ConversionMode, ConversionResult, EngineChoice, OutputStyle, ProgressUpdate } from './types';
 
 type Theme = 'light' | 'dark';
@@ -38,6 +39,13 @@ const elements = {
   exactDesc: byId('exact-desc'),
   outputHint: byId('output-hint'),
   engineSettings: byId<HTMLButtonElement>('engine-settings'),
+  pageModeAll: byId<HTMLInputElement>('page-mode-all'),
+  pageModeCustom: byId<HTMLInputElement>('page-mode-custom'),
+  pageCustomWrap: byId('page-custom-wrap'),
+  pageInput: byId<HTMLInputElement>('page-input'),
+  pageTotal: byId('page-total'),
+  pageHint: byId('page-hint'),
+  pageError: byId('page-error'),
   fileWarning: byId('file-warning'),
   fileWarningTitle: byId('file-warning-title'),
   fileWarningText: byId('file-warning-text'),
@@ -70,6 +78,7 @@ const elements = {
   resultHint: byId('result-hint'),
   tryHighFidelity: byId<HTMLButtonElement>('try-high-fidelity'),
   switchExact: byId<HTMLButtonElement>('switch-exact'),
+  changePages: byId<HTMLButtonElement>('change-pages'),
   convertAnother: byId<HTMLButtonElement>('convert-another'),
   dragOverlay: byId('drag-overlay'),
   toastStack: byId('toast-stack'),
@@ -95,6 +104,9 @@ const state: {
   busy: boolean;
   abort: AbortController | null;
   result: ConversionResult | null;
+  pdfPageCount: number | null;
+  docxPageCount: number | null;
+  pageCountLoading: boolean;
 } = {
   mode: readMode(),
   style: readStyle(),
@@ -104,11 +116,15 @@ const state: {
   busy: false,
   abort: null,
   result: null,
+  pdfPageCount: null,
+  docxPageCount: null,
+  pageCountLoading: false,
 };
 
 let passwordResolver: ((value: string | null) => void) | null = null;
 let engineChoiceResolver: ((value: EngineChoice | null) => void) | null = null;
 let primaryAction: 'download' | 'print' = 'download';
+let pageCountRequest = 0;
 let dragDepth = 0;
 
 function safeStorageGet(key: string): string | null {
@@ -143,6 +159,102 @@ function readEngineChoice(): EngineChoice | null {
 function currentStyle(): OutputStyle {
   const checked = document.querySelector<HTMLInputElement>('input[name="output-style"]:checked');
   return checked?.value === 'exact' ? 'exact' : 'selectable';
+}
+
+interface CurrentPageSelection {
+  pages?: number[];
+  label: string;
+  error?: string;
+}
+
+function currentPageMode(): 'all' | 'custom' {
+  return elements.pageModeCustom.checked ? 'custom' : 'all';
+}
+
+function pageTotalForMode(): number | null {
+  return state.mode === 'pdf-to-docx' ? state.pdfPageCount : state.docxPageCount;
+}
+
+function resetPageRange(): void {
+  pageCountRequest += 1;
+  elements.pageModeAll.checked = true;
+  elements.pageInput.value = '';
+  state.pdfPageCount = null;
+  state.docxPageCount = null;
+  state.pageCountLoading = false;
+  updatePageRangeUI();
+}
+
+function currentPageSelection(): CurrentPageSelection {
+  if (currentPageMode() === 'all') {
+    return { pages: undefined, label: 'All pages' };
+  }
+
+  const parsed = parsePageSelection(elements.pageInput.value, pageTotalForMode());
+  if (!parsed.ok) {
+    return { label: '', error: parsed.error };
+  }
+  return { pages: parsed.pages, label: parsed.label };
+}
+
+function updatePageRangeUI(): void {
+  const custom = currentPageMode() === 'custom';
+  elements.pageCustomWrap.hidden = !custom;
+
+  const total = pageTotalForMode();
+  if (state.pageCountLoading && state.mode === 'pdf-to-docx') {
+    elements.pageTotal.textContent = 'Counting pages…';
+  } else if (total !== null) {
+    elements.pageTotal.textContent = total === 1 ? '1 page' : `${total} pages`;
+  } else {
+    elements.pageTotal.textContent =
+      state.mode === 'pdf-to-docx' ? 'Count after unlock' : 'Count after layout';
+  }
+
+  if (!custom) {
+    elements.pageError.hidden = true;
+    elements.pageHint.hidden = true;
+    elements.convertButton.disabled = false;
+    return;
+  }
+
+  const selection = currentPageSelection();
+  if (selection.error) {
+    elements.pageError.textContent = selection.error;
+    elements.pageError.hidden = false;
+    elements.pageHint.hidden = true;
+    elements.convertButton.disabled = true;
+    return;
+  }
+
+  const count = selection.pages?.length ?? 0;
+  elements.pageError.hidden = true;
+  elements.pageHint.hidden = false;
+  elements.pageHint.textContent = `${count} ${count === 1 ? 'page' : 'pages'} selected · Use commas and ranges, like 1-3, 5.`;
+  elements.convertButton.disabled = false;
+}
+
+async function loadPageCount(file: File): Promise<void> {
+  const request = pageCountRequest + 1;
+  pageCountRequest = request;
+  state.pdfPageCount = null;
+  state.docxPageCount = null;
+  state.pageCountLoading = state.mode === 'pdf-to-docx';
+  updatePageRangeUI();
+  if (state.mode !== 'pdf-to-docx') return;
+
+  try {
+    const count = await getPdfPageCount(file);
+    if (request !== pageCountRequest || state.file !== file) return;
+    state.pdfPageCount = count;
+  } catch {
+    if (request === pageCountRequest) state.pdfPageCount = null;
+  } finally {
+    if (request === pageCountRequest) {
+      state.pageCountLoading = false;
+      updatePageRangeUI();
+    }
+  }
 }
 
 function showToast(message: string, duration = 3400): void {
@@ -206,6 +318,7 @@ function updateModeCopy(): void {
   elements.convertButton.textContent = wordMode ? 'Convert to PDF' : 'Convert to Word';
   elements.formatNote.title = wordMode ? 'Accepts .docx only. For .doc, save as .docx first.' : 'Accepts .pdf files.';
   updateOutputCopy();
+  updatePageRangeUI();
 }
 
 function updateOutputCopy(): void {
@@ -295,6 +408,7 @@ function updateFilePanel(): void {
   elements.outputOptions.hidden = false;
   elements.convertButton.textContent = state.mode === 'docx-to-pdf' ? 'Convert to PDF' : 'Convert to Word';
   updateOutputCopy();
+  updatePageRangeUI();
 
   const sizeMb = state.file.size / (1024 * 1024);
   if (sizeMb > 25) {
@@ -335,9 +449,11 @@ function resetToIdle(options: { keepFile?: boolean; message?: string } = {}): vo
     state.file = null;
     state.fileLabel = '';
     setFilePanelVisible(false);
+    resetPageRange();
   } else {
     setFilePanelVisible(true);
     updateFilePanel();
+    updatePageRangeUI();
   }
   elements.fileInput.value = '';
   setTabsEnabled(true);
@@ -430,6 +546,7 @@ async function handleFile(file: File): Promise<void> {
   elements.progressLabel.textContent = file.name;
   setFilePanelVisible(true);
   updateFilePanel();
+  void loadPageCount(file);
   elements.idleState.hidden = false;
   elements.busyState.hidden = true;
   elements.resultState.hidden = true;
@@ -596,6 +713,17 @@ function renderPreview(
   elements.resultPreview.append(empty);
 }
 
+function resultPagesLabel(result: ConversionResult): string {
+  if (
+    result.sourcePageCount &&
+    result.selectedPages &&
+    result.selectedPages.length < result.sourcePageCount
+  ) {
+    return `${result.pageCount} of ${result.sourcePageCount} pages`;
+  }
+  return formatPages(result.pageCount);
+}
+
 function showResult(
   result: ConversionResult,
   source: File,
@@ -607,6 +735,14 @@ function showResult(
   },
 ): void {
   state.result = result;
+  if (context.mode === 'docx-to-pdf' && result.sourcePageCount) {
+    state.docxPageCount = result.sourcePageCount;
+  }
+  if (context.mode === 'pdf-to-docx' && result.sourcePageCount) {
+    state.pdfPageCount = result.sourcePageCount;
+  }
+  state.pageCountLoading = false;
+  updatePageRangeUI();
   const wordOutput = context.mode === 'docx-to-pdf';
   const selectableWord = wordOutput && context.style === 'selectable';
 
@@ -619,8 +755,8 @@ function showResult(
       ? 'Done. Your PDF is ready.'
       : 'Done. Your Word file is ready.';
   elements.resultMeta.textContent = selectableWord
-    ? `${result.filename} · ${formatPages(result.pageCount)} · Selectable PDF`
-    : `${result.filename} · ${formatBytes(result.blob.size)} · ${formatPages(result.pageCount)}`;
+    ? `${result.filename} · ${resultPagesLabel(result)} · Selectable PDF`
+    : `${result.filename} · ${formatBytes(result.blob.size)} · ${resultPagesLabel(result)}`;
 
   primaryAction = selectableWord ? 'print' : 'download';
   elements.primaryButton.disabled = false;
@@ -656,7 +792,14 @@ function showResult(
       ? `${result.filename} · vector PDF via print`
       : `${result.filename} · ${formatBytes(result.blob.size)}`,
   );
-  addDetail('Pages', String(result.pageCount));
+  addDetail('Pages', resultPagesLabel(result));
+  if (
+    result.sourcePageCount &&
+    result.selectedPages &&
+    result.selectedPages.length < result.sourcePageCount
+  ) {
+    addDetail('Range', formatPageList(result.selectedPages));
+  }
   if (result.images && result.images > 0) addDetail('Images', String(result.images));
   if (context.mode === 'pdf-to-docx' && context.style === 'selectable') {
     addDetail(
@@ -737,6 +880,14 @@ async function startConversion(
     updateOutputCopy();
   }
 
+  const selection = currentPageSelection();
+  if (selection.error) {
+    updatePageRangeUI();
+    elements.pageInput.focus();
+    return;
+  }
+  const pages = selection.pages;
+
   let engine = mode === 'pdf-to-docx' ? overrides.engine ?? state.engine : null;
   if (mode === 'pdf-to-docx' && style === 'selectable' && !engine) {
     const choice = await askEngineChoice();
@@ -782,6 +933,7 @@ async function startConversion(
       signal,
       onProgress,
       mode: 'text',
+      pages,
       getPassword: askPassword,
     });
   };
@@ -793,6 +945,7 @@ async function startConversion(
         signal,
         onProgress,
         renderStage: elements.renderStage,
+        pages,
       });
     } else if (style === 'exact') {
       const { convertPdfToDocx } = await import('./converters/pdfToDocx');
@@ -800,11 +953,15 @@ async function startConversion(
         signal,
         onProgress,
         mode: 'image',
+        pages,
         getPassword: askPassword,
       });
     } else if (engine === 'high') {
       setProgress({ stage: 'Checking your PDF…', percent: 4 });
-      const probe = await probePdf(source, signal);
+      const probe = await probePdf(source, signal, pages);
+      if (!probe.encrypted && pages?.some((page) => page < 1 || page > probe.pageCount)) {
+        throw new PageRangeError(probe.pageCount);
+      }
       if (probe.encrypted) {
         fallbackReason = 'High-fidelity mode does not support password-protected PDFs.';
         engineUsed = 'fast';
@@ -822,13 +979,18 @@ async function startConversion(
           const docx = await convertPdfWithHighFidelity(pdfBytes, {
             signal,
             onStatus: (stage) => setEngineProgress(stage),
+            pages,
           });
           if (signal.aborted) throw new UserCancelledError();
+          const selectedPages =
+            pages ?? Array.from({ length: probe.pageCount }, (_, index) => index + 1);
           result = {
             blob: docx,
             filename: outputFilename(source.name, 'docx'),
             kind: 'docx',
-            pageCount: probe.pageCount,
+            pageCount: selectedPages.length,
+            sourcePageCount: probe.pageCount,
+            selectedPages,
             previewText: probe.previewText,
             scanned: false,
           };
@@ -853,6 +1015,11 @@ async function startConversion(
     if (signal.aborted) throw new UserCancelledError();
     showResult(result, source, { mode, style, engine: engineUsed, fallbackReason });
   } catch (error) {
+    if (error instanceof PageRangeError) {
+      if (mode === 'docx-to-pdf') state.docxPageCount = error.pageCount;
+      else state.pdfPageCount = error.pageCount;
+      state.pageCountLoading = false;
+    }
     resetToIdle({ keepFile: true });
     if (error instanceof UserCancelledError || isAbortError(error) || signal.aborted) {
       showToast('Conversion cancelled.');
@@ -969,6 +1136,13 @@ function wireEvents(): void {
     });
   });
 
+  elements.pageModeAll.addEventListener('change', () => updatePageRangeUI());
+  elements.pageModeCustom.addEventListener('change', () => {
+    updatePageRangeUI();
+    elements.pageInput.focus();
+  });
+  elements.pageInput.addEventListener('input', () => updatePageRangeUI());
+
   elements.engineSettings.addEventListener('click', () => {
     void askEngineChoice();
   });
@@ -1030,6 +1204,17 @@ function wireEvents(): void {
   elements.convertAnother.addEventListener('click', () => {
     resetToIdle();
     elements.dropzone.focus({ preventScroll: true });
+    elements.toolCard.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  elements.changePages.addEventListener('click', () => {
+    if (!state.file) return;
+    resetToIdle({ keepFile: true });
+    if (currentPageMode() === 'custom') {
+      elements.pageInput.focus({ preventScroll: true });
+    } else {
+      elements.pageModeAll.focus({ preventScroll: true });
+    }
     elements.toolCard.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
   });
 

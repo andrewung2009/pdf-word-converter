@@ -22,6 +22,7 @@ Most online converters upload your documents to a server. This one doesn't. The 
 ## Features
 
 - **Two matching output styles in both directions** — Selectable text and Exact layout.
+- **Custom pages in both directions** — convert all pages, or ranges like `1-3, 5, 8-10`. The selection applies to fast, high-fidelity, exact, and print outputs.
 - **Word → PDF**
   - Selectable: preview, then save a true vector PDF through your browser's print dialog. Images and layout are preserved, and the text is selectable.
   - Exact: automatically download a page-perfect image PDF with a searchable text layer.
@@ -34,11 +35,15 @@ Most online converters upload your documents to a server. This one doesn't. The 
 - **Light and dark themes**, responsive layout, keyboard support, and reduced-motion support.
 - **Works at any GitHub Pages path** — relative asset URLs.
 
+### Custom pages
+
+![Custom page range selection](docs/pages.png)
+
 ## How to use
 
 1. Pick a direction: **Word → PDF** or **PDF → Word**.
 2. Drop a `.docx` or `.pdf` file, or choose one. You can also try the bundled sample.
-3. Pick an output style, then press **Convert**.
+3. Pick an output style and, optionally, a custom page range, then press **Convert**.
 4. Download the result, or save the selectable PDF from the print dialog.
 
 PDF → Word creates a new `.docx` you can open in Microsoft Word, Google Docs, LibreOffice, or Pages.
@@ -77,6 +82,7 @@ Scanned PDFs have no selectable text; the app detects this and offers **Exact la
 - **PDF:** standard PDFs, including password-protected PDFs (you'll be prompted). High-fidelity mode does not support encrypted PDFs and falls back to fast mode.
 - **Size:** no server limit. Around 25 MB or 200 pages is a comfortable range; very large files depend on available device memory. Files over 100 MB are blocked.
 - **Images:** images in PDFs are extracted and embedded in the Word output. Vector-only charts may remain approximated.
+- **Page numbers:** page ranges refer to physical page order. PDF totals are shown after the file is inspected; Word page counts are determined after layout. “Change pages” on the result screen returns to the range selector with the same file.
 - **High-fidelity engine:** ~50–55 MB first download, cached; slower and more memory-hungry than fast mode, especially on phones.
 - **High-fidelity fidelity:** reconstructed pages may differ from the PDF in page breaks, vector rules/borders, barcodes, and exact spacing. Use Exact layout for a pixel-perfect, non-editable copy.
 - **Multi-section Word files:** same-size sections are split into separate PDF pages; content that overflows a reconstructed section may produce a taller page.
@@ -115,7 +121,7 @@ npm run test:e2e  # production build + Playwright browser tests
 npx playwright install chromium   # first run only
 ```
 
-The end-to-end suite covers both output styles in both directions, the print route, searchable image PDFs, multi-section pagination, fast and high-fidelity PDF → Word (including CMYK images), exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
+The end-to-end suite covers both output styles in both directions, custom page ranges, the print route, searchable image PDFs, multi-section pagination, fast and high-fidelity PDF → Word (including CMYK images), exact page-image output, scanned-PDF switching, sharing, legacy `.doc`, dark mode, and mobile layout.
 
 ## Deployment
 
